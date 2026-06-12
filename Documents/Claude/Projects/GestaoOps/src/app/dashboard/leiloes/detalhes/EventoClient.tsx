@@ -69,6 +69,15 @@ export default function EventoDetailPage() {
   const [financialCode, setFinancialCode] = useState('');
   const [needsPlanning, setNeedsPlanning] = useState(false);
 
+  // Dados importados (editáveis)
+  const [editTitle, setEditTitle] = useState('');
+  const [editDate, setEditDate] = useState('');       // datetime-local
+  const [editEndDate, setEditEndDate] = useState(''); // datetime-local
+  const [editChannel, setEditChannel] = useState('');
+  const [editCity, setEditCity] = useState('');
+  const [editState, setEditState] = useState('');
+  const [editPlace, setEditPlace] = useState('');
+
   // Service lists & config states
   const [servicesList, setServicesList] = useState<string[]>([]);
   const [studiosList, setStudiosList] = useState<string[]>([]);
@@ -138,6 +147,13 @@ export default function EventoDetailPage() {
       setOperationType((evt.operationType as OperationType) || '');
       setStudioName(evt.studioName || '');
       setRevenue(evt.revenue || 0);
+      setEditTitle(evt.title || '');
+      setEditDate(evt.date ? format(toDate(evt.date), "yyyy-MM-dd'T'HH:mm") : '');
+      setEditEndDate(evt.endDate ? format(toDate(evt.endDate), "yyyy-MM-dd'T'HH:mm") : '');
+      setEditChannel(evt.channelName || '');
+      setEditCity(evt.city || '');
+      setEditState(evt.state || '');
+      setEditPlace(evt.place || '');
       setObservation(evt.observation || '');
       setCommercialIntermediary(evt.commercialIntermediary || '');
       setContractInfo(evt.contractInfo || '');
@@ -276,6 +292,9 @@ export default function EventoDetailPage() {
       const resolvedOpType = isInternal ? 'estudio' : operationType;
       const resolvedNeedsPlanning = resolvedOpType === 'externo' ? true : needsPlanning;
 
+      if (!editTitle.trim()) { showToast('O título não pode ficar vazio.', 'error'); setSaving(false); return; }
+      if (!editDate) { showToast('A data de início é obrigatória.', 'error'); setSaving(false); return; }
+
       await updateEvent(id, {
         operationType: resolvedOpType as OperationType || null,
         studioName: resolvedOpType === 'estudio' ? studioName : null,
@@ -286,6 +305,13 @@ export default function EventoDetailPage() {
         company,
         financialCode,
         needsPlanning: resolvedNeedsPlanning,
+        title: editTitle.trim(),
+        date: new Date(editDate),
+        endDate: editEndDate ? new Date(editEndDate) : new Date(editDate),
+        channelName: editChannel,
+        city: editCity,
+        state: editState,
+        place: editPlace,
       } as Partial<GestaoEvent>);
       showToast('Evento atualizado!');
       await loadEvent();
@@ -620,6 +646,44 @@ export default function EventoDetailPage() {
       {activeTab === 'info' && (
         <div className="card animate-in">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '600px' }}>
+            {/* Dados do evento (importados — editáveis) */}
+            <h4 style={{ fontSize: '13px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Dados do Evento</h4>
+            <div className="input-group">
+              <label>Nome do Evento *</label>
+              <input className="input" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} disabled={!canEditInfo} />
+            </div>
+            <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="input-group">
+                <label>Data & Hora Início *</label>
+                <input className="input" type="datetime-local" value={editDate} onChange={(e) => setEditDate(e.target.value)} disabled={!canEditInfo} />
+              </div>
+              <div className="input-group">
+                <label>Data & Hora Fim</label>
+                <input className="input" type="datetime-local" value={editEndDate} min={editDate || undefined} onChange={(e) => setEditEndDate(e.target.value)} disabled={!canEditInfo} />
+              </div>
+            </div>
+            <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+              <div className="input-group">
+                <label>Canal de Transmissão</label>
+                <input className="input" value={editChannel} onChange={(e) => setEditChannel(e.target.value)} placeholder="Ex: Canal do Boi" disabled={!canEditInfo} />
+              </div>
+              <div className="input-group">
+                <label>Local</label>
+                <input className="input" value={editPlace} onChange={(e) => setEditPlace(e.target.value)} disabled={!canEditInfo} />
+              </div>
+            </div>
+            <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+              <div className="input-group">
+                <label>Cidade</label>
+                <input className="input" value={editCity} onChange={(e) => setEditCity(e.target.value)} disabled={!canEditInfo} />
+              </div>
+              <div className="input-group">
+                <label>UF</label>
+                <input className="input" value={editState} onChange={(e) => setEditState(e.target.value.toUpperCase())} maxLength={2} placeholder="PR" disabled={!canEditInfo} />
+              </div>
+            </div>
+
+            <h4 style={{ fontSize: '13px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: '8px' }}>Operação</h4>
             <div className="input-group">
               <label>Tipo de Operação *</label>
               <select className="input" value={operationType} onChange={(e) => {

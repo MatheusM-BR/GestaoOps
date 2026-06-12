@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { fetchAllAuctions, fetchAuctionById, RemateAuction, hasValidToken, getToken, parseRobustDate } from '@/services/remateweb-api';
 import { getEvents, createEvent, deleteEvent, updateEvent } from '@/services/events';
 import { GestaoEvent, OperationType, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE } from '@/types/event';
-import { getDocument } from '@/lib/firestore';
+import { getDocument, getCollection } from '@/lib/firestore';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
@@ -31,6 +31,9 @@ export default function EventosPage() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterType, setFilterType] = useState('all');
+  const [sortOrder, setSortOrder] = useState<'date_asc' | 'date_desc' | 'title_az' | 'title_za'>('date_asc');
+  const [filterChannel, setFilterChannel] = useState('all');
+  const [filterService, setFilterService] = useState('all');
   // Período: vazio por padrão = exibe todos os eventos.
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -44,13 +47,13 @@ export default function EventosPage() {
   const [importLoading, setImportLoading] = useState(false);
   const [remateAuctions, setRemateAuctions] = useState<RemateAuction[]>([]);
   const [selectedImports, setSelectedImports] = useState<Set<number>>(new Set());
-  // Intervalo padrão: 30 dias atrás → fim do ano (cobre eventos passados recentes e futuros)
-  const [importStart, setImportStart] = useState(() => {
+  // Intervalo padrão: hoje → 60 dias à frente
+  const [importStart, setImportStart] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [importEnd, setImportEnd] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 30);
+    d.setDate(d.getDate() + 60);
     return format(d, 'yyyy-MM-dd');
   });
-  const [importEnd, setImportEnd] = useState(() => format(new Date(new Date().getFullYear(), 11, 31), 'yyyy-MM-dd'));
   const [importError, setImportError] = useState('');
   const [importTotal, setImportTotal] = useState<number | null>(null);
   const [importAlreadyIn, setImportAlreadyIn] = useState(0);
@@ -76,19 +79,22 @@ export default function EventosPage() {
   // Db Configs
   const [studios, setStudios] = useState<string[]>([]);
   const [services, setServices] = useState<string[]>([]);
+  const [holidays, setHolidays] = useState<{ date: string }[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setLoadError('');
     try {
-      const [evts, studiosDoc, servicesDoc] = await Promise.all([
+      const [evts, studiosDoc, servicesDoc, hols] = await Promise.all([
         getEvents(),
         getDocument<{ list: string[] }>('settings', 'studios').catch(() => null),
         getDocument<{ list: string[] }>('settings', 'services').catch(() => null),
+        getCollection<{ date: string }>('holidays').catch(() => []),
       ]);
       setEvents(evts);
       if (studiosDoc) setStudios(studiosDoc.list || []);
       if (servicesDoc) setServices(servicesDoc.list || []);
+      setHolidays(hols);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[loadData]', err);
@@ -135,13 +141,25 @@ export default function EventosPage() {
       e.city?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus === 'all' || e.status === filterStatus;
     const matchType = filterType === 'all' || e.operationType === filterType;
-    return matchPeriod && matchSearch && matchStatus && matchType;
+    const matchChannel = filterChannel === 'all' || (e.channelName || '').trim() === filterChannel;
+    const matchService = filterService === 'all' || (e.services || []).some((s) => s.serviceName === filterService);
+    return matchPeriod && matchSearch && matchStatus && matchType && matchChannel && matchService;
   });
 
-  // Eventos futuros: os mais próximos de hoje primeiro.
-  const sortedEvents = [...filtered].sort(
-    (a, b) => toDate(a.date).getTime() - toDate(b.date).getTime()
-  );
+  // Opções de canal e serviço derivadas dos eventos carregados
+  const channelOptions = [...new Set(events.map((e) => (e.channelName || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const serviceOptions = [...new Set(events.flatMap((e) => (e.services || []).map((s) => s.serviceName)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+  // Ordenação configurável pelo filtro
+  const sortedEvents = [...filtered].sort((a, b) => {
+    switch (sortOrder) {
+      case 'date_desc': return toDate(b.date).getTime() - toDate(a.date).getTime();
+      case 'title_az':  return (a.title || '').localeCompare(b.title || '', 'pt-BR');
+      case 'title_za':  return (b.title || '').localeCompare(a.title || '', 'pt-BR');
+      case 'date_asc':
+      default:          return toDate(a.date).getTime() - toDate(b.date).getTime();
+    }
+  });
 
   const handleFetchFromAPI = async () => {
     setImportLoading(true);
@@ -463,6 +481,20 @@ export default function EventosPage() {
           <option value="externo">Externo</option>
           <option value="retransmissao">Retransmissão</option>
         </select>
+        <select className="input" value={filterChannel} onChange={(e) => setFilterChannel(e.target.value)} style={{ width: 'auto' }} title="Filtrar por canal">
+          <option value="all">Todos os Canais</option>
+          {channelOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select className="input" value={filterService} onChange={(e) => setFilterService(e.target.value)} style={{ width: 'auto' }} title="Filtrar por serviço">
+          <option value="all">Todos os Serviços</option>
+          {serviceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select className="input" value={sortOrder} onChange={(e) => setSortOrder(e.target.value as typeof sortOrder)} style={{ width: 'auto' }} title="Ordenação">
+          <option value="date_asc">Data ↑ (mais antigos)</option>
+          <option value="date_desc">Data ↓ (mais recentes)</option>
+          <option value="title_az">Título A–Z</option>
+          <option value="title_za">Título Z–A</option>
+        </select>
         <div className="date-range-group">
           <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>De</span>
           <input
@@ -509,16 +541,32 @@ export default function EventosPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {sortedEvents.map((evt) => {
             const d = toDate(evt.date);
+            const dow = d.getDay();
+            const isWeekendEvt = dow === 0 || dow === 6;
+            const dateKey = format(d, 'yyyy-MM-dd');
+            const isHolidayEvt = holidays.some((h) => h.date === dateKey);
+            const isSpecial = isWeekendEvt || isHolidayEvt;
             return (
               <div
                 key={evt.id}
                 className="responsive-card-item"
                 onClick={() => router.push(`/dashboard/leiloes/detalhes?id=${evt.id}`)}
+                style={isSpecial ? { borderLeft: '3px solid #ef4444' } : undefined}
               >
                 <div style={{ display: 'flex', gap: '16px', alignItems: 'center', width: '100%' }}>
-                  <div className="schedule-date-badge" style={{ flexShrink: 0 }}>
-                    <span className="day">{format(d, 'dd')}</span>
-                    <span className="month">{format(d, 'MMM', { locale: ptBR })}</span>
+                  <div
+                    className="schedule-date-badge"
+                    style={{
+                      flexShrink: 0,
+                      ...(isSpecial ? { background: 'rgba(239,68,68,0.12)', color: '#ef4444' } : {}),
+                    }}
+                    title={isHolidayEvt ? 'Feriado' : isWeekendEvt ? 'Fim de semana' : undefined}
+                  >
+                    <span className="day" style={isSpecial ? { color: '#ef4444' } : undefined}>{format(d, 'dd')}</span>
+                    <span className="month" style={isSpecial ? { color: '#ef4444' } : undefined}>{format(d, 'MMM', { locale: ptBR })}</span>
+                    <span style={{ fontSize: '9px', opacity: 0.75, lineHeight: 1, marginTop: '1px', color: isSpecial ? '#ef4444' : 'var(--text-muted)' }}>
+                      {format(d, 'EEE', { locale: ptBR }).replace('.', '')}
+                    </span>
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
