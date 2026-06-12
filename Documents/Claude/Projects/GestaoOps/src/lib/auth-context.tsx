@@ -171,6 +171,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const rwProfile = getRemateWebProfile();
         if (rwProfile) {
           setProfile(rwProfile);
+          // Sessão de gestor sem auth do Firebase (ex: logada antes das novas
+          // regras): restabelece o auth anônimo para o Firestore autorizar.
+          try { await signInAnonymously(auth); } catch (e) {
+            console.warn('Falha ao restabelecer auth anônimo:', e);
+          }
         } else {
           setProfile(null);
           setMustResetPassword(false);
