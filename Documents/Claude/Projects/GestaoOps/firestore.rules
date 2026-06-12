@@ -1,0 +1,60 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ───────────────────────────────────────────────────────────────
+    // Bloqueia TODO acesso não autenticado (antes era aberto à internet).
+    //
+    // Limitação conhecida: o login de gestor via RemateWeb usa auth
+    // anônimo do Firebase, então as regras não conseguem distinguir
+    // papel (role) no servidor para esse fluxo. A separação fina por
+    // papel exige migrar o login para Custom Tokens emitidos por um
+    // backend (Cloud Function) — ver TODO abaixo.
+    // ───────────────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Perfil de login: cada usuário lê apenas o próprio documento.
+    // Bloqueio principal: ninguém altera o PRÓPRIO role (anti auto-promoção).
+    match /users/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      // Atualização: gestão atualiza docs de terceiros; o próprio usuário
+      // só altera campos que não incluam 'role' (ex: mustResetPassword).
+      allow update: if isSignedIn() && (
+        request.auth.uid != uid ||
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+      );
+      // Criação: apenas para outros uids (fluxo de cadastro de operador).
+      // Impede criar o próprio doc com role arbitrário.
+      allow create: if isSignedIn() && request.auth.uid != uid;
+      allow delete: if isSignedIn() && request.auth.uid != uid;
+    }
+
+    // Coleções operacionais: exigem autenticação.
+    // TODO(segurança): quando o login de gestor migrar para Custom Token
+    // com claim de role, restringir:
+    //   - operators (paymentRules/salários): leitura só gestão ou o próprio
+    //   - events.revenue/expenses: leitura só gestão
+    match /operators/{doc} {
+      allow read, write: if isSignedIn();
+    }
+    match /events/{doc} {
+      allow read, write: if isSignedIn();
+    }
+    match /settings/{doc} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+    match /holidays/{doc} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Qualquer outra coleção: negada por padrão.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

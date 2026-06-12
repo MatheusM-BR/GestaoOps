@@ -99,7 +99,11 @@ function getRemateWebProfile(): UserProfile | null {
     const rwAuth = localStorage.getItem('remateweb_auth');
     const rwUser = localStorage.getItem('remateweb_user');
     const rwName = localStorage.getItem('remateweb_name');
-    if (rwAuth === 'true' && rwUser) {
+    // Exige também o token da API RemateWeb dentro da validade — a sessão de
+    // gestor só é reconhecida enquanto houver autenticação real no painel.
+    const rwToken = localStorage.getItem('remateweb_token');
+    const rwExpiry = parseInt(localStorage.getItem('remateweb_token_expiry') || '0', 10);
+    if (rwAuth === 'true' && rwUser && rwToken && rwExpiry > Date.now()) {
       return {
         uid: 'rw_' + rwUser,
         email: rwUser,
@@ -122,6 +126,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
+        // Usuário anônimo: só existe como suporte ao login de gestor via
+        // RemateWeb — o perfil vem do localStorage (getRemateWebProfile).
+        if (firebaseUser.isAnonymous) {
+          const rwProfile = getRemateWebProfile();
+          setProfile(rwProfile);
+          setMustResetPassword(false);
+          setLoading(false);
+          return;
+        }
         try {
           const profileDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
           if (profileDoc.exists()) {
@@ -129,21 +142,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setProfile({ ...data, authProvider: 'firebase' });
             setMustResetPassword(data.mustResetPassword === true);
           } else {
-            setProfile({
+            // Sem documento de perfil: se for sessão de gestor RemateWeb
+            // (login do painel também tenta Firebase), usa o perfil RW;
+            // caso contrário, MENOR privilégio (operação) — nunca admin.
+            const rwProfile = getRemateWebProfile();
+            setProfile(rwProfile || {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
-              name: 'Administrador',
-              role: 'admin',
+              name: firebaseUser.email?.split('@')[0] || 'Usuário',
+              role: 'operacao',
               authProvider: 'firebase',
             });
             setMustResetPassword(false);
           }
         } catch {
-          setProfile({
+          // Erro de leitura (rede/permissão): NUNCA promover a admin.
+          const rwProfile = getRemateWebProfile();
+          setProfile(rwProfile || {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
-            name: 'Administrador',
-            role: 'admin',
+            name: firebaseUser.email?.split('@')[0] || 'Usuário',
+            role: 'operacao',
             authProvider: 'firebase',
           });
           setMustResetPassword(false);
