@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { fetchAllAuctions, fetchAuctionById, RemateAuction, hasValidToken, getToken, parseRobustDate } from '@/services/remateweb-api';
 import { getEvents, createEvent, deleteEvent, updateEvent } from '@/services/events';
-import { GestaoEvent, OperationType, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE } from '@/types/event';
+import { GestaoEvent, OperationType, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, EventService } from '@/types/event';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -41,6 +41,8 @@ export default function EventosPage() {
   const [loadError, setLoadError] = useState('');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncResult, setSyncResult] = useState<{ updated: number; skipped: number } | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set());
 
   // API Import Modal
   const [showImportModal, setShowImportModal] = useState(false);
@@ -397,6 +399,86 @@ export default function EventosPage() {
     else showToast(`Nenhuma alteração necessária (${skipped} já atualizados ou sem dados).`, 'info');
   };
 
+  const updateLocalEventService = (
+    currentServices: EventService[] | undefined,
+    order: number,
+    serviceName: string
+  ) => {
+    const base = currentServices || [];
+    const filtered = base.filter((s) => s.serviceOrder !== order);
+    if (serviceName) {
+      filtered.push({
+        serviceName,
+        serviceOrder: order,
+        eventId: '',
+      });
+    }
+    return filtered.sort((a, b) => a.serviceOrder - b.serviceOrder);
+  };
+
+  const handleBulkUpdateOpType = async (opType: OperationType | '') => {
+    if (!opType) return;
+    if (selectedEvents.size === 0) {
+      showToast('Selecione pelo menos um evento para aplicar em lote.', 'error');
+      return;
+    }
+
+    const ids = Array.from(selectedEvents);
+    try {
+      setEvents((prev) =>
+        prev.map((e) => ids.includes(e.id) ? { ...e, operationType: opType } : e)
+      );
+
+      await Promise.all(ids.map((id) => updateEvent(id, { operationType: opType })));
+
+      showToast(`Tipo de Operação "${OPERATION_TYPE_LABELS[opType]}" aplicado a ${ids.length} eventos.`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao aplicar alteração em lote.', 'error');
+    }
+  };
+
+  const handleBulkUpdateService = async (order: number, serviceName: string) => {
+    if (!serviceName) return;
+    if (selectedEvents.size === 0) {
+      showToast('Selecione pelo menos um evento para aplicar em lote.', 'error');
+      return;
+    }
+
+    const ids = Array.from(selectedEvents);
+    const isRemoving = serviceName === 'remover';
+    const targetService = isRemoving ? '' : serviceName;
+
+    try {
+      setEvents((prev) =>
+        prev.map((e) => {
+          if (!ids.includes(e.id)) return e;
+          const newServices = updateLocalEventService(e.services, order, targetService);
+          return { ...e, services: newServices };
+        })
+      );
+
+      await Promise.all(
+        ids.map(async (id) => {
+          const e = events.find((evt) => evt.id === id);
+          if (!e) return;
+          const newServices = updateLocalEventService(e.services, order, targetService);
+          await updateEvent(id, { services: newServices });
+        })
+      );
+
+      showToast(
+        isRemoving
+          ? `Serviço ${order} removido de ${ids.length} eventos.`
+          : `Serviço ${order} "${serviceName}" aplicado a ${ids.length} eventos.`,
+        'success'
+      );
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao aplicar alteração em lote.', 'error');
+    }
+  };
+
   return (
     <div>
       {toast && (
@@ -434,6 +516,16 @@ export default function EventosPage() {
         </div>
         {canModify && (
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              className={`btn ${isEditMode ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => {
+                setIsEditMode(!isEditMode);
+                setSelectedEvents(new Set());
+              }}
+              style={isEditMode ? { background: 'var(--primary)', color: 'white' } : undefined}
+            >
+              {isEditMode ? 'Sair do Modo de Edição' : 'Modo de Edição'}
+            </button>
             <button className="btn btn-ghost" onClick={() => { setShowManualModal(true); }}>
               <PlusCircle size={16} /> Cadastrar Evento
             </button>
@@ -526,6 +618,35 @@ export default function EventosPage() {
         </div>
       </div>
 
+      {isEditMode && (
+        <div style={{
+          background: 'var(--primary-light)',
+          border: '1px solid var(--primary)',
+          borderRadius: 'var(--radius-md)',
+          padding: '10px 16px',
+          marginBottom: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '14px',
+          color: 'var(--primary)',
+          fontWeight: 500,
+        }}>
+          <span>
+            💡 <strong>Modo de Edição Ativo:</strong> {selectedEvents.size} evento(s) selecionado(s). Selecione os eventos e depois use os dropdowns do cabeçalho da tabela para aplicar alterações em lote naquela coluna.
+          </span>
+          {selectedEvents.size > 0 && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setSelectedEvents(new Set())}
+              style={{ color: 'var(--primary)', fontWeight: 600 }}
+            >
+              Desmarcar Todos
+            </button>
+          )}
+        </div>
+      )}
+
       {/* List */}
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -536,6 +657,157 @@ export default function EventosPage() {
           <Gavel size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
           <h3>Nenhum evento</h3>
           <p>Importe da API RemateWeb ou cadastre manualmente no painel.</p>
+        </div>
+      ) : isEditMode ? (
+        <div className="table-container card" style={{ padding: 0, overflowX: 'auto' }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th style={{ width: '40px' }}>
+                  <input
+                    type="checkbox"
+                    checked={sortedEvents.length > 0 && sortedEvents.every((e) => selectedEvents.has(e.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedEvents(new Set(sortedEvents.map((evt) => evt.id)));
+                      } else {
+                        setSelectedEvents(new Set());
+                      }
+                    }}
+                    style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                  />
+                </th>
+                <th>Evento</th>
+                <th>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <span>Tipo de Operação</span>
+                    <select
+                      className="input"
+                      style={{ fontSize: '11px', padding: '2px 4px', height: 'auto', fontWeight: 'normal', textTransform: 'none' }}
+                      value=""
+                      onChange={(e) => {
+                        handleBulkUpdateOpType(e.target.value as OperationType);
+                        e.target.value = '';
+                      }}
+                    >
+                      <option value="">Aplicar em lote...</option>
+                      <option value="retransmissao">Retransmissão</option>
+                      <option value="estudio">Estúdio</option>
+                      <option value="externo">Externo</option>
+                    </select>
+                  </div>
+                </th>
+                {[1, 2, 3, 4].map((order) => (
+                  <th key={order}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span>Serviço {order}</span>
+                      <select
+                        className="input"
+                        style={{ fontSize: '11px', padding: '2px 4px', height: 'auto', fontWeight: 'normal', textTransform: 'none' }}
+                        value=""
+                        onChange={(e) => {
+                          handleBulkUpdateService(order, e.target.value);
+                          e.target.value = '';
+                        }}
+                      >
+                        <option value="">Aplicar em lote...</option>
+                        <option value="remover" style={{ color: 'var(--error)' }}>❌ Remover</option>
+                        {services.map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedEvents.map((evt) => {
+                const d = toDate(evt.date);
+                const isSelected = selectedEvents.has(evt.id);
+                return (
+                  <tr key={evt.id} style={{ background: isSelected ? 'var(--primary-light)' : undefined }}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {
+                          const next = new Set(selectedEvents);
+                          if (next.has(evt.id)) {
+                            next.delete(evt.id);
+                          } else {
+                            next.add(evt.id);
+                          }
+                          setSelectedEvents(next);
+                        }}
+                        style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                      />
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span
+                          style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}
+                          onClick={() => router.push(`/dashboard/leiloes/detalhes?id=${evt.id}`)}
+                        >
+                          {evt.title}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {format(d, 'dd/MM/yyyy HH:mm')} · {evt.channelName || 'RemateWeb'} · {evt.city || 'N/D'}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <select
+                        className="input"
+                        style={{ fontSize: '12px', padding: '4px 8px', height: 'auto', minWidth: '110px' }}
+                        value={evt.operationType || ''}
+                        onChange={async (e) => {
+                          const type = e.target.value as OperationType | '';
+                          const newType = type || null;
+                          setEvents((prev) =>
+                            prev.map((ev) => ev.id === evt.id ? { ...ev, operationType: newType } : ev)
+                          );
+                          await updateEvent(evt.id, { operationType: newType } as Partial<GestaoEvent>);
+                          showToast('Tipo de Operação atualizado.', 'success');
+                        }}
+                      >
+                        <option value="">(Sem tipo)</option>
+                        <option value="retransmissao">Retransmissão</option>
+                        <option value="estudio">Estúdio</option>
+                        <option value="externo">Externo</option>
+                      </select>
+                    </td>
+                    {[1, 2, 3, 4].map((order) => {
+                      const s = (evt.services || []).find((srv) => srv.serviceOrder === order);
+                      return (
+                        <td key={order}>
+                          <select
+                            className="input"
+                            style={{ fontSize: '12px', padding: '4px 8px', height: 'auto', minWidth: '120px' }}
+                            value={s?.serviceName || ''}
+                            onChange={async (e) => {
+                              const serviceName = e.target.value;
+                              const newServices = updateLocalEventService(evt.services, order, serviceName);
+                              setEvents((prev) =>
+                                prev.map((ev) => ev.id === evt.id ? { ...ev, services: newServices } : ev)
+                              );
+                              await updateEvent(evt.id, { services: newServices });
+                              showToast(`Serviço ${order} atualizado.`, 'success');
+                            }}
+                          >
+                            <option value="">(Nenhum)</option>
+                            {services.map((name) => (
+                              <option key={name} value={name}>{name}</option>
+                            ))}
+                          </select>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
