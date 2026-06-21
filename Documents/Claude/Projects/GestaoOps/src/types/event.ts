@@ -12,6 +12,84 @@ export const OPERATION_TYPE_BADGE: Record<OperationType, string> = {
   externo: 'badge-primary',
   retransmissao: 'badge-info',
 };
+// Tipo de Leilão da plataforma RemateWeb (enum SaleType da API).
+export type SaleType = 0 | 1 | 2 | 3;
+export const SALE_TYPE_LABELS: Record<SaleType, string> = {
+  0: 'Reserva',
+  1: 'Normal',
+  2: 'Shopping',
+  3: 'Pré Lance',
+};
+
+// Região do leilão (campo regionId da API).
+export const REGION_LABELS: Record<string, string> = {
+  br: 'Brasil',
+  bo: 'Bolívia',
+};
+
+// Bloco com os dados do leilão no formato que a API RemateWeb (POST /api/auction)
+// espera. Guardado denormalizado (id + nome) para exibição sem depender do
+// catálogo carregado. A escrita de fato na API é fase futura — por ora só
+// capturamos os campos. Ver docs/remateweb-api.md.
+export interface AuctionRegistration {
+  saleType: SaleType | null;
+  regionId: string;                    // 'br' | 'bo'
+  onlineUntil: Date | null;
+  organizationId: number | null;       // Parceiro (organização)
+  partnerId: number | null;            // Parceiro realizador (leiloeira)
+  partnerName: string;
+  channelId: number | null;
+  streamingId: number | null;
+  streamingName: string;
+  breedId: number | null;              // Raça principal
+  breedName: string;
+  bidIncrementGroupId: number | null;
+  bidIncrementGroupName: string;
+  increment: number | null;
+  captation: number | null;
+  paymentConditions: string;
+  youtubePlaylist: string;
+  youtubeId: string;
+  visible: boolean;
+  agenda: boolean;
+  transmission: boolean;
+  live: boolean;
+  buyerTax: number | null;
+  sellerTax: number | null;
+  unitTax: number | null;
+}
+
+// Estado inicial do bloco de dados do leilão (padrões iguais aos do painel).
+export function emptyAuctionRegistration(): AuctionRegistration {
+  return {
+    saleType: 1,        // Normal
+    regionId: 'br',
+    onlineUntil: null,
+    organizationId: null,
+    partnerId: null,
+    partnerName: '',
+    channelId: null,
+    streamingId: null,
+    streamingName: '',
+    breedId: null,
+    breedName: '',
+    bidIncrementGroupId: null,
+    bidIncrementGroupName: '',
+    increment: null,
+    captation: null,
+    paymentConditions: '',
+    youtubePlaylist: '',
+    youtubeId: '',
+    visible: false,
+    agenda: true,
+    transmission: false,
+    live: false,
+    buyerTax: null,
+    sellerTax: null,
+    unitTax: null,
+  };
+}
+
 export type EventStatus = 'pendente' | 'escalado' | 'em_andamento' | 'finalizado';
 export type AssignmentStatus = 'confirmado' | 'pendente' | 'cancelado';
 export type ExpenseCategory = 'veiculo' | 'hospedagem' | 'alimentacao' | 'outros';
@@ -136,6 +214,8 @@ export interface GestaoEvent {
   closing: EventClosing | null;
   planning?: EventPlanning | null;
   needsPlanning?: boolean;
+  // Dados do leilão no formato RemateWeb (cadastro que substituirá o painel-net9).
+  auctionData?: AuctionRegistration | null;
   createdAt: Date;
   updatedAt: Date;
 }

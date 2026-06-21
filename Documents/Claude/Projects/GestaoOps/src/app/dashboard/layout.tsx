@@ -21,6 +21,8 @@ import {
   TrendingUp,
   Clipboard,
   CalendarDays,
+  Download,
+  Bell,
 } from 'lucide-react';
 
 interface NavItem {
@@ -39,7 +41,9 @@ const managementNav: NavItem[] = [
   { label: 'Calendário', href: '/dashboard/calendario', icon: CalendarDays },
   { label: 'Financeiro', href: '/dashboard/financeiro', icon: DollarSign, roles: ['admin', 'ceo', 'financeiro', 'administrativo'] },
   { label: 'Exportação', href: '/dashboard/exportacao', icon: FileSpreadsheet, roles: ['admin', 'ceo', 'financeiro'] },
+  { label: 'Notificações', href: '/dashboard/notificacoes', icon: Bell, roles: ['admin', 'ceo', 'comercial', 'administrativo'] },
   { label: 'Configurações', href: '/dashboard/configuracoes', icon: Settings, roles: ['admin', 'ceo'] },
+  { label: 'Downloader', href: '/dashboard/downloader', icon: Download, roles: ['admin', 'ceo'] },
 ];
 
 const operatorNav: NavItem[] = [
@@ -84,6 +88,8 @@ const ROUTE_GUARDS: { prefix: string; roles: SystemRole[] }[] = [
   { prefix: '/dashboard/eventos', roles: EVENT_ACCESS },
   { prefix: '/dashboard/leiloes', roles: EVENT_ACCESS },
   { prefix: '/dashboard/escala', roles: EVENT_ACCESS },
+  { prefix: '/dashboard/downloader', roles: ['admin', 'ceo'] },
+  { prefix: '/dashboard/notificacoes', roles: ['admin', 'ceo', 'comercial', 'administrativo'] },
   // /dashboard/calendario: aberto a todos (todos veem os leilões da empresa).
 ];
 
@@ -97,7 +103,7 @@ function getPageTitle(pathname: string, isManagement: boolean): string {
   if (pathname === '/dashboard') return isManagement ? 'Dashboard' : 'Meus Serviços';
   const allNav = [...managementNav, ...operatorNav];
   const match = allNav.find((n) => n.href !== '/dashboard' && pathname.startsWith(n.href));
-  return match?.label || 'GestãoOps';
+  return match?.label || 'GestRW';
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -239,8 +245,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Sidebar */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-logo">
-          <div className="logo-icon">G</div>
-          <span>GestãoOps</span>
+          <img src="/logo-remateweb.svg" alt="RemateWeb" style={{ width: 36, height: 36, borderRadius: 10 }} />
+          <span>GestRW</span>
           <button
             className="mobile-menu-btn"
             onClick={() => setSidebarOpen(false)}

@@ -5,7 +5,8 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { getEventById, getEvents, updateEvent, addServiceToEvent, removeServiceFromEvent, assignOperator, removeAssignment, addExpense, removeExpense, closeEvent } from '@/services/events';
 import { getActiveOperators } from '@/services/operators';
 import { getDocument, getCollection } from '@/lib/firestore';
-import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense, EventClosing, ExpenseCategory, EventPlanning, PlanningVehicle, PlanningHotel, PlanningChecklist } from '@/types/event';
+import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense, EventClosing, ExpenseCategory, EventPlanning, PlanningVehicle, PlanningHotel, PlanningChecklist, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration } from '@/types/event';
+import { useCatalogs } from '@/lib/useCatalogs';
 import { Operator, isOperatorRestDay } from '@/types/operator';
 import { useAuth } from '@/lib/auth-context';
 import { isInternalService, isInternalEvent, calculateOperatorPayment } from '@/lib/payment-engine';
@@ -17,7 +18,7 @@ import {
   CheckCircle, Plus, Trash2, Clock, MapPin,
   AlertTriangle, Clipboard, Car, Hotel, CheckSquare, Square,
   Calendar, Moon, Building2, Plane, Bus, Truck, Package,
-  FileText, Download, Monitor,
+  FileText, Download, Monitor, Gavel,
 } from 'lucide-react';
 
 function toDate(val: unknown): Date {
@@ -77,6 +78,13 @@ export default function EventoDetailPage() {
   const [editCity, setEditCity] = useState('');
   const [editState, setEditState] = useState('');
   const [editPlace, setEditPlace] = useState('');
+
+  // Dados do leilão no formato RemateWeb (espelha o cadastro).
+  const { catalogs, loading: catalogsLoading } = useCatalogs();
+  const [showAuctionFields, setShowAuctionFields] = useState(false);
+  const [auctionForm, setAuctionForm] = useState<AuctionRegistration>(emptyAuctionRegistration());
+  const setAF = <K extends keyof AuctionRegistration>(key: K, value: AuctionRegistration[K]) =>
+    setAuctionForm((prev) => ({ ...prev, [key]: value }));
 
   // Service lists & config states
   const [servicesList, setServicesList] = useState<string[]>([]);
@@ -154,6 +162,17 @@ export default function EventoDetailPage() {
       setEditCity(evt.city || '');
       setEditState(evt.state || '');
       setEditPlace(evt.place || '');
+      if (evt.auctionData) {
+        setAuctionForm({
+          ...emptyAuctionRegistration(),
+          ...evt.auctionData,
+          onlineUntil: evt.auctionData.onlineUntil ? toDate(evt.auctionData.onlineUntil) : null,
+        });
+        setShowAuctionFields(true);
+      } else {
+        setAuctionForm(emptyAuctionRegistration());
+        setShowAuctionFields(false);
+      }
       setObservation(evt.observation || '');
       setCommercialIntermediary(evt.commercialIntermediary || '');
       setContractInfo(evt.contractInfo || '');
@@ -312,6 +331,7 @@ export default function EventoDetailPage() {
         city: editCity,
         state: editState,
         place: editPlace,
+        auctionData: showAuctionFields ? auctionForm : null,
       } as Partial<GestaoEvent>);
       showToast('Evento atualizado!');
       await loadEvent();
@@ -753,6 +773,149 @@ export default function EventoDetailPage() {
               <label>Observação</label>
               <textarea className="input" rows={3} value={observation} onChange={(e) => setObservation(e.target.value)} style={{ resize: 'vertical' }} disabled={!canEditInfo} />
             </div>
+
+            {/* Dados do Leilão no formato RemateWeb */}
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: canEditInfo ? 'pointer' : 'default', fontWeight: 600 }}>
+                <input type="checkbox" checked={showAuctionFields} onChange={(e) => setShowAuctionFields(e.target.checked)} disabled={!canEditInfo} />
+                <Gavel size={15} style={{ color: 'var(--primary)' }} /> Dados do Leilão (RemateWeb)
+                {catalogsLoading && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>· carregando catálogos…</span>}
+              </label>
+            </div>
+
+            {showAuctionFields && (
+              <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="input-group">
+                    <label>Tipo de Leilão</label>
+                    <select className="input" value={auctionForm.saleType ?? ''} onChange={(e) => setAF('saleType', e.target.value === '' ? null : (Number(e.target.value) as SaleType))} disabled={!canEditInfo}>
+                      {([0, 1, 2, 3] as SaleType[]).map((t) => <option key={t} value={t}>{SALE_TYPE_LABELS[t]}</option>)}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label>Região</label>
+                    <select className="input" value={auctionForm.regionId} onChange={(e) => setAF('regionId', e.target.value)} disabled={!canEditInfo}>
+                      {Object.entries(REGION_LABELS).map(([rid, label]) => <option key={rid} value={rid}>{label}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="input-group">
+                  <label>Online Até</label>
+                  <input className="input" type="datetime-local" value={auctionForm.onlineUntil ? format(toDate(auctionForm.onlineUntil), "yyyy-MM-dd'T'HH:mm") : ''} onChange={(e) => setAF('onlineUntil', e.target.value ? new Date(e.target.value) : null)} disabled={!canEditInfo} />
+                </div>
+
+                <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="input-group">
+                    <label>Organização</label>
+                    <select className="input" value={auctionForm.organizationId ?? ''} onChange={(e) => setAF('organizationId', e.target.value === '' ? null : Number(e.target.value))} disabled={!canEditInfo}>
+                      <option value="">Selecione...</option>
+                      {catalogs.partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label>Realizador (Leiloeira)</label>
+                    <select className="input" value={auctionForm.partnerId ?? ''} onChange={(e) => {
+                      const pid = e.target.value === '' ? null : Number(e.target.value);
+                      setAF('partnerId', pid);
+                      setAF('partnerName', catalogs.eventMakers.find((p) => p.id === pid)?.name || '');
+                    }} disabled={!canEditInfo}>
+                      <option value="">Selecione...</option>
+                      {catalogs.eventMakers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="input-group">
+                    <label>Canal</label>
+                    <select className="input" value={auctionForm.channelId ?? ''} onChange={(e) => setAF('channelId', e.target.value === '' ? null : Number(e.target.value))} disabled={!canEditInfo}>
+                      <option value="">Selecione...</option>
+                      {catalogs.channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label>Streaming</label>
+                    <select className="input" value={auctionForm.streamingId ?? ''} onChange={(e) => {
+                      const sid = e.target.value === '' ? null : Number(e.target.value);
+                      setAF('streamingId', sid);
+                      setAF('streamingName', catalogs.streamings.find((s) => s.id === sid)?.name || '');
+                    }} disabled={!canEditInfo}>
+                      <option value="">Selecione...</option>
+                      {catalogs.streamings.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="input-group">
+                    <label>Raça Principal</label>
+                    <select className="input" value={auctionForm.breedId ?? ''} onChange={(e) => {
+                      const bid = e.target.value === '' ? null : Number(e.target.value);
+                      setAF('breedId', bid);
+                      setAF('breedName', catalogs.breeds.find((b) => b.id === bid)?.name || '');
+                    }} disabled={!canEditInfo}>
+                      <option value="">Selecione...</option>
+                      {catalogs.breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label>Grupo de Incremento</label>
+                    <select className="input" value={auctionForm.bidIncrementGroupId ?? ''} onChange={(e) => {
+                      const gid = e.target.value === '' ? null : Number(e.target.value);
+                      setAF('bidIncrementGroupId', gid);
+                      setAF('bidIncrementGroupName', catalogs.bidIncrementGroups.find((g) => g.id === gid)?.name || '');
+                    }} disabled={!canEditInfo}>
+                      <option value="">Selecione...</option>
+                      {catalogs.bidIncrementGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="input-group">
+                    <label>Incremento (R$)</label>
+                    <input className="input" type="number" min="0" step="0.01" value={auctionForm.increment ?? ''} onChange={(e) => setAF('increment', e.target.value === '' ? null : Number(e.target.value))} disabled={!canEditInfo} />
+                  </div>
+                  <div className="input-group">
+                    <label>Captação</label>
+                    <input className="input" type="number" min="0" value={auctionForm.captation ?? ''} onChange={(e) => setAF('captation', e.target.value === '' ? null : Number(e.target.value))} disabled={!canEditInfo} />
+                  </div>
+                </div>
+
+                <div className="input-group">
+                  <label>Condição de Pagamento Padrão</label>
+                  <input className="input" placeholder="Ex: 30/60/90 dias" value={auctionForm.paymentConditions} onChange={(e) => setAF('paymentConditions', e.target.value)} disabled={!canEditInfo} />
+                </div>
+
+                <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="input-group">
+                    <label>Playlist YouTube (id)</label>
+                    <input className="input" value={auctionForm.youtubePlaylist} onChange={(e) => setAF('youtubePlaylist', e.target.value)} disabled={!canEditInfo} />
+                  </div>
+                  <div className="input-group">
+                    <label>Vídeo YouTube (id)</label>
+                    <input className="input" value={auctionForm.youtubeId} onChange={(e) => setAF('youtubeId', e.target.value)} disabled={!canEditInfo} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', paddingTop: '4px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: canEditInfo ? 'pointer' : 'default' }}>
+                    <input type="checkbox" checked={auctionForm.visible} onChange={(e) => setAF('visible', e.target.checked)} disabled={!canEditInfo} /> Visível
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: canEditInfo ? 'pointer' : 'default' }}>
+                    <input type="checkbox" checked={auctionForm.agenda} onChange={(e) => setAF('agenda', e.target.checked)} disabled={!canEditInfo} /> Agenda
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: canEditInfo ? 'pointer' : 'default' }}>
+                    <input type="checkbox" checked={auctionForm.transmission} onChange={(e) => setAF('transmission', e.target.checked)} disabled={!canEditInfo} /> Transmissão
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: canEditInfo ? 'pointer' : 'default' }}>
+                    <input type="checkbox" checked={auctionForm.live} onChange={(e) => setAF('live', e.target.checked)} disabled={!canEditInfo} /> Ao Vivo
+                  </label>
+                </div>
+              </div>
+            )}
+
             {canEditInfo && (
               <button className="btn btn-primary" onClick={handleSaveInfo} disabled={saving}>
                 {saving ? <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} /> : <><Save size={16} /> Salvar</>}

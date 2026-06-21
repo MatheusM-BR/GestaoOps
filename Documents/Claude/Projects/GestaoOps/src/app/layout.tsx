@@ -9,7 +9,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "GestãoOps — Sistema de Gestão de Operações",
+  title: "GestRW — Sistema de Gestão de Operações",
   description: "Sistema interno de gestão de equipe, finanças e serviços para operações de leilões RemateWeb.",
 };
 

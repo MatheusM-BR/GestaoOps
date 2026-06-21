@@ -1,3 +1,12 @@
+import type {
+  Breed,
+  BreedType,
+  Partner,
+  Unity,
+  BidIncrementGroup,
+  Streaming,
+} from '@/types/catalog';
+
 const API_BASE_URL = 'https://api.remateweb.com';
 
 interface TokenResponse {
@@ -250,6 +259,84 @@ export async function fetchChannels(): Promise<{ channels: { id: number; name: s
     'PageIndex': '1',
     'PageSize': '100',
   });
+}
+
+// ---------------------------------------------------------------------------
+// Catálogos (Configurações do painel) — alimentam os selects do cadastro de
+// evento. A API envelopa a lista no plural da entidade + `quantity`.
+// ---------------------------------------------------------------------------
+
+// Parâmetros de paginação aceitos pelos endpoints de catálogo.
+function catalogParams(pageIndex: number, pageSize: number): Record<string, string> {
+  return {
+    orderBy: 'name',
+    sortDirection: 'asc',
+    pageIndex: String(pageIndex),
+    pageSize: String(pageSize),
+    'vmFields.pageIndex': String(pageIndex),
+    'vmFields.pageSize': String(pageSize),
+    'vmFields.orderBy': 'name',
+    'vmFields.sortDirection': 'asc',
+  };
+}
+
+// Extrai o array de uma resposta envelopada `{ <chave>: [...], quantity }`.
+function unwrapList<T>(raw: unknown, key: string): { items: T[]; quantity: number } {
+  if (Array.isArray(raw)) return { items: raw as T[], quantity: raw.length };
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const arr = Array.isArray(obj[key]) ? (obj[key] as T[]) : [];
+    const quantity = typeof obj.quantity === 'number' ? obj.quantity : arr.length;
+    return { items: arr, quantity };
+  }
+  return { items: [], quantity: 0 };
+}
+
+// Busca todas as páginas de um catálogo (catálogos são pequenos e estáveis).
+async function fetchAllCatalog<T>(endpoint: string, wrapKey: string): Promise<T[]> {
+  const pageSize = 200;
+  const firstRaw = await apiGet<unknown>(endpoint, catalogParams(1, pageSize));
+  const first = unwrapList<T>(firstRaw, wrapKey);
+  if (first.quantity <= pageSize || first.items.length === 0) return first.items;
+  const totalPages = Math.ceil(first.quantity / pageSize);
+  const rest = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, i) =>
+      apiGet<unknown>(endpoint, catalogParams(i + 2, pageSize))
+        .then((r) => unwrapList<T>(r, wrapKey).items)
+        .catch(() => [] as T[]),
+    ),
+  );
+  return [...first.items, ...rest.flat()];
+}
+
+export function fetchBreeds(): Promise<Breed[]> {
+  return fetchAllCatalog<Breed>('/api/breed', 'breeds');
+}
+
+export function fetchBreedTypes(): Promise<BreedType[]> {
+  return fetchAllCatalog<BreedType>('/api/breedType', 'breedTypes');
+}
+
+export function fetchPartners(): Promise<Partner[]> {
+  return fetchAllCatalog<Partner>('/api/partner', 'partners');
+}
+
+// Apenas parceiros que realizam eventos (leiloeiras) — usados como Realizador.
+export async function fetchEventMakers(): Promise<Partner[]> {
+  const all = await fetchPartners();
+  return all.filter((p) => p.eventMaker);
+}
+
+export function fetchUnities(): Promise<Unity[]> {
+  return fetchAllCatalog<Unity>('/api/unity', 'unities');
+}
+
+export function fetchBidIncrementGroups(): Promise<BidIncrementGroup[]> {
+  return fetchAllCatalog<BidIncrementGroup>('/api/bidIncrementGroup', 'bidIncrementGroups');
+}
+
+export function fetchStreamings(): Promise<Streaming[]> {
+  return fetchAllCatalog<Streaming>('/api/streaming', 'streamings');
 }
 
 export function parseRobustDate(val: unknown): Date {

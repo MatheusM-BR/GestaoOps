@@ -58,8 +58,8 @@ export default function LoginPage() {
     <div className="login-page">
       <div className="login-card">
         <div className="login-logo">
-          <div className="logo-badge">G</div>
-          <h1>GestãoOps</h1>
+          <img src="/logo-remateweb.svg" alt="RemateWeb" style={{ width: 60, height: 60, borderRadius: 14, marginBottom: 16 }} />
+          <h1>GestRW</h1>
           <p>Sistema de Gestão de Operações — RemateWeb</p>
         </div>
 

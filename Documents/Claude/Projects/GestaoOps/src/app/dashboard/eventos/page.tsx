@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { fetchAllAuctions, fetchAuctionById, RemateAuction, hasValidToken, getToken, parseRobustDate } from '@/services/remateweb-api';
 import { getEvents, createEvent, deleteEvent, updateEvent } from '@/services/events';
-import { GestaoEvent, OperationType, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, EventService } from '@/types/event';
+import { GestaoEvent, OperationType, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, EventService, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration } from '@/types/event';
 import { getDocument, getCollection } from '@/lib/firestore';
+import { useCatalogs } from '@/lib/useCatalogs';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
@@ -77,6 +78,13 @@ export default function EventosPage() {
   const [manualNotes, setManualNotes] = useState('');
   const [manualService, setManualService] = useState('');
   const [manualLoading, setManualLoading] = useState(false);
+
+  // Dados do leilão no formato RemateWeb (cadastro que substituirá o painel-net9).
+  const { catalogs, loading: catalogsLoading } = useCatalogs();
+  const [showAuctionFields, setShowAuctionFields] = useState(false);
+  const [auctionForm, setAuctionForm] = useState<AuctionRegistration>(emptyAuctionRegistration());
+  const setAF = <K extends keyof AuctionRegistration>(key: K, value: AuctionRegistration[K]) =>
+    setAuctionForm((prev) => ({ ...prev, [key]: value }));
 
   // Db Configs
   const [studios, setStudios] = useState<string[]>([]);
@@ -280,6 +288,13 @@ export default function EventosPage() {
       const isInternal = manualService ? isInternalService(manualService) : (manualOpType === 'estudio');
       const resolvedOpType = isInternal ? 'estudio' : (manualOpType || 'externo');
 
+      // Canal/organização: prioriza o catálogo RemateWeb quando os campos do
+      // leilão foram preenchidos; senão usa o canal digitado.
+      const selectedChannel = catalogs.channels.find((c) => c.id === auctionForm.channelId);
+      const selectedOrg = catalogs.partners.find((p) => p.id === auctionForm.organizationId);
+      const resolvedChannel = selectedChannel?.name || manualChannel || 'RemateWeb';
+      const resolvedOrg = selectedOrg?.name || 'Manual';
+
       const docId = await createEvent({
         rematewebId: null,
         title: manualTitle,
@@ -291,8 +306,8 @@ export default function EventosPage() {
         city: manualCity || (isInternal ? 'Estúdio' : ''),
         state: manualState || '',
         place: isInternal ? (manualStudio || 'Estúdio Sede') : '',
-        channelName: manualChannel || 'RemateWeb',
-        organizationName: 'Manual',
+        channelName: resolvedChannel,
+        organizationName: resolvedOrg,
         revenue: manualRevenue,
         actualRevenue: 0,
         status: 'pendente',
@@ -306,6 +321,7 @@ export default function EventosPage() {
         expenses: [],
         closing: null,
         needsPlanning: !isInternal, // externos sempre precisam de planejamento
+        auctionData: showAuctionFields ? auctionForm : null,
       });
 
       setShowManualModal(false);
@@ -321,6 +337,8 @@ export default function EventosPage() {
       setManualState('');
       setManualNotes('');
       setManualService('');
+      setAuctionForm(emptyAuctionRegistration());
+      setShowAuctionFields(false);
       showToast('Evento criado com sucesso!');
       router.push(`/dashboard/leiloes/detalhes?id=${docId}`);
     } catch (err) {
@@ -918,7 +936,7 @@ export default function EventosPage() {
       {/* Manual Creation Modal */}
       {showManualModal && (
         <div className="modal-overlay" onClick={() => setShowManualModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '760px' }}>
             <div className="modal-header">
               <h2>Cadastrar Novo Evento</h2>
               <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowManualModal(false)}><X size={16} /></button>
@@ -992,6 +1010,144 @@ export default function EventosPage() {
                   <input className="input" placeholder="Ex: Campo Grande" value={manualCity} onChange={(e) => setManualCity(e.target.value)} />
                 </div>
               </div>
+
+              {/* Dados do Leilão no formato RemateWeb (cadastro que substituirá o painel-net9) */}
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
+                  <input type="checkbox" checked={showAuctionFields} onChange={(e) => setShowAuctionFields(e.target.checked)} />
+                  <Gavel size={15} style={{ color: 'var(--primary)' }} /> Dados do Leilão (RemateWeb)
+                  {catalogsLoading && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>· carregando catálogos…</span>}
+                </label>
+              </div>
+
+              {showAuctionFields && (
+                <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label>Tipo de Leilão</label>
+                      <select className="input" value={auctionForm.saleType ?? ''} onChange={(e) => setAF('saleType', e.target.value === '' ? null : (Number(e.target.value) as SaleType))}>
+                        {([0, 1, 2, 3] as SaleType[]).map((t) => <option key={t} value={t}>{SALE_TYPE_LABELS[t]}</option>)}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label>Região</label>
+                      <select className="input" value={auctionForm.regionId} onChange={(e) => setAF('regionId', e.target.value)}>
+                        {Object.entries(REGION_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label>Online Até</label>
+                      <input className="input" type="datetime-local" value={auctionForm.onlineUntil ? format(auctionForm.onlineUntil, "yyyy-MM-dd'T'HH:mm") : ''} onChange={(e) => setAF('onlineUntil', e.target.value ? parseRobustDate(e.target.value) : null)} />
+                    </div>
+                  </div>
+
+                  <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label>Organização</label>
+                      <select className="input" value={auctionForm.organizationId ?? ''} onChange={(e) => setAF('organizationId', e.target.value === '' ? null : Number(e.target.value))}>
+                        <option value="">Selecione...</option>
+                        {catalogs.partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label>Realizador (Leiloeira)</label>
+                      <select className="input" value={auctionForm.partnerId ?? ''} onChange={(e) => {
+                        const id = e.target.value === '' ? null : Number(e.target.value);
+                        setAF('partnerId', id);
+                        setAF('partnerName', catalogs.eventMakers.find((p) => p.id === id)?.name || '');
+                      }}>
+                        <option value="">Selecione...</option>
+                        {catalogs.eventMakers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label>Canal</label>
+                      <select className="input" value={auctionForm.channelId ?? ''} onChange={(e) => setAF('channelId', e.target.value === '' ? null : Number(e.target.value))}>
+                        <option value="">Selecione...</option>
+                        {catalogs.channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label>Streaming</label>
+                      <select className="input" value={auctionForm.streamingId ?? ''} onChange={(e) => {
+                        const id = e.target.value === '' ? null : Number(e.target.value);
+                        setAF('streamingId', id);
+                        setAF('streamingName', catalogs.streamings?.find((s) => s.id === id)?.name || '');
+                      }}>
+                        <option value="">Selecione...</option>
+                        {(catalogs.streamings ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label>Raça Principal</label>
+                      <select className="input" value={auctionForm.breedId ?? ''} onChange={(e) => {
+                        const id = e.target.value === '' ? null : Number(e.target.value);
+                        setAF('breedId', id);
+                        setAF('breedName', catalogs.breeds.find((b) => b.id === id)?.name || '');
+                      }}>
+                        <option value="">Selecione...</option>
+                        {catalogs.breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label>Grupo de Incremento</label>
+                      <select className="input" value={auctionForm.bidIncrementGroupId ?? ''} onChange={(e) => {
+                        const id = e.target.value === '' ? null : Number(e.target.value);
+                        setAF('bidIncrementGroupId', id);
+                        setAF('bidIncrementGroupName', catalogs.bidIncrementGroups.find((g) => g.id === id)?.name || '');
+                      }}>
+                        <option value="">Selecione...</option>
+                        {catalogs.bidIncrementGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label>Incremento (R$)</label>
+                      <input className="input" type="number" min="0" step="0.01" placeholder="Ex: 100" value={auctionForm.increment ?? ''} onChange={(e) => setAF('increment', e.target.value === '' ? null : Number(e.target.value))} />
+                    </div>
+                    <div className="input-group">
+                      <label>Captação</label>
+                      <input className="input" type="number" min="0" placeholder="Ex: 0" value={auctionForm.captation ?? ''} onChange={(e) => setAF('captation', e.target.value === '' ? null : Number(e.target.value))} />
+                    </div>
+                  </div>
+
+                  <div className="input-group">
+                    <label>Condição de Pagamento Padrão</label>
+                    <input className="input" placeholder="Ex: 30/60/90 dias" value={auctionForm.paymentConditions} onChange={(e) => setAF('paymentConditions', e.target.value)} />
+                  </div>
+
+                  <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label>Playlist YouTube (id)</label>
+                      <input className="input" placeholder="id da playlist" value={auctionForm.youtubePlaylist} onChange={(e) => setAF('youtubePlaylist', e.target.value)} />
+                    </div>
+                    <div className="input-group">
+                      <label>Vídeo YouTube (id)</label>
+                      <input className="input" placeholder="id do vídeo" value={auctionForm.youtubeId} onChange={(e) => setAF('youtubeId', e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', paddingTop: '4px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={auctionForm.visible} onChange={(e) => setAF('visible', e.target.checked)} /> Visível
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={auctionForm.agenda} onChange={(e) => setAF('agenda', e.target.checked)} /> Agenda
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={auctionForm.transmission} onChange={(e) => setAF('transmission', e.target.checked)} /> Transmissão
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={auctionForm.live} onChange={(e) => setAF('live', e.target.checked)} /> Ao Vivo
+                    </label>
+                  </div>
+                </div>
+              )}
 
               <div className="input-group">
                 <label>Observações</label>
