@@ -89,6 +89,7 @@ export default function EventoDetailPage() {
   // Service lists & config states
   const [servicesList, setServicesList] = useState<string[]>([]);
   const [studiosList, setStudiosList] = useState<string[]>([]);
+  const [paymentCondOptions, setPaymentCondOptions] = useState<string[]>([]);
   const [holidays, setHolidays] = useState<any[]>([]);
   const [defaultRulesFunc, setDefaultRulesFunc] = useState<any>(null);
   const [defaultRulesN1, setDefaultRulesN1] = useState<any>(null);
@@ -241,11 +242,17 @@ export default function EventoDetailPage() {
       console.error('Erro ao carregar serviços:', err);
     }
 
-    // Load studios from settings
+    // Load studios + condições de pagamento padrão from settings
     try {
-      const studiosDoc = await getDocument<{ list: string[] }>('settings', 'studios');
+      const [studiosDoc, payCondDoc] = await Promise.all([
+        getDocument<{ list: string[] }>('settings', 'studios'),
+        getDocument<{ list: string[] }>('settings', 'paymentConditions').catch(() => null),
+      ]);
       if (studiosDoc && Array.isArray(studiosDoc.list) && studiosDoc.list.length > 0) {
         setStudiosList(studiosDoc.list);
+      }
+      if (payCondDoc && Array.isArray(payCondDoc.list)) {
+        setPaymentCondOptions(payCondDoc.list);
       }
     } catch (err) {
       console.error('Erro ao carregar estúdios:', err);
@@ -805,25 +812,16 @@ export default function EventoDetailPage() {
                   <input className="input" type="datetime-local" value={auctionForm.onlineUntil ? format(toDate(auctionForm.onlineUntil), "yyyy-MM-dd'T'HH:mm") : ''} onChange={(e) => setAF('onlineUntil', e.target.value ? new Date(e.target.value) : null)} disabled={!canEditInfo} />
                 </div>
 
-                <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div className="input-group">
-                    <label>Organização</label>
-                    <select className="input" value={auctionForm.organizationId ?? ''} onChange={(e) => setAF('organizationId', e.target.value === '' ? null : Number(e.target.value))} disabled={!canEditInfo}>
-                      <option value="">Selecione...</option>
-                      {catalogs.partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="input-group">
-                    <label>Realizador (Leiloeira)</label>
-                    <select className="input" value={auctionForm.partnerId ?? ''} onChange={(e) => {
-                      const pid = e.target.value === '' ? null : Number(e.target.value);
-                      setAF('partnerId', pid);
-                      setAF('partnerName', catalogs.eventMakers.find((p) => p.id === pid)?.name || '');
-                    }} disabled={!canEditInfo}>
-                      <option value="">Selecione...</option>
-                      {catalogs.eventMakers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  </div>
+                <div className="input-group">
+                  <label>Realizador (Leiloeira)</label>
+                  <select className="input" value={auctionForm.partnerId ?? ''} onChange={(e) => {
+                    const pid = e.target.value === '' ? null : Number(e.target.value);
+                    setAF('partnerId', pid);
+                    setAF('partnerName', catalogs.eventMakers.find((p) => p.id === pid)?.name || '');
+                  }} disabled={!canEditInfo}>
+                    <option value="">Selecione...</option>
+                    {catalogs.eventMakers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
                 </div>
 
                 <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -875,17 +873,23 @@ export default function EventoDetailPage() {
                 <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div className="input-group">
                     <label>Incremento (R$)</label>
-                    <input className="input" type="number" min="0" step="0.01" value={auctionForm.increment ?? ''} onChange={(e) => setAF('increment', e.target.value === '' ? null : Number(e.target.value))} disabled={!canEditInfo} />
+                    <input className="input no-spinner" type="number" min="0" step="0.01" value={auctionForm.increment ?? ''} onChange={(e) => setAF('increment', e.target.value === '' ? null : Number(e.target.value))} disabled={!canEditInfo} />
                   </div>
                   <div className="input-group">
                     <label>Captação</label>
-                    <input className="input" type="number" min="0" value={auctionForm.captation ?? ''} onChange={(e) => setAF('captation', e.target.value === '' ? null : Number(e.target.value))} disabled={!canEditInfo} />
+                    <input className="input no-spinner" type="number" min="0" value={auctionForm.captation ?? ''} onChange={(e) => setAF('captation', e.target.value === '' ? null : Number(e.target.value))} disabled={!canEditInfo} />
                   </div>
                 </div>
 
                 <div className="input-group">
                   <label>Condição de Pagamento Padrão</label>
-                  <input className="input" placeholder="Ex: 30/60/90 dias" value={auctionForm.paymentConditions} onChange={(e) => setAF('paymentConditions', e.target.value)} disabled={!canEditInfo} />
+                  {paymentCondOptions.length > 0 && (
+                    <select className="input" style={{ marginBottom: '6px' }} value={paymentCondOptions.includes(auctionForm.paymentConditions) ? auctionForm.paymentConditions : ''} onChange={(e) => { if (e.target.value) setAF('paymentConditions', e.target.value); }} disabled={!canEditInfo}>
+                      <option value="">Condições mais usadas…</option>
+                      {paymentCondOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  )}
+                  <input className="input" placeholder="Ex: 2+2+2+2+2+20=30" value={auctionForm.paymentConditions} onChange={(e) => setAF('paymentConditions', e.target.value)} disabled={!canEditInfo} />
                 </div>
 
                 <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

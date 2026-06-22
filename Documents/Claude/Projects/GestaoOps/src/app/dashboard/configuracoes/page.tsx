@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Settings, Key, Globe, Calendar as CalendarIcon, Save, Plus, Trash2, CheckCircle, Users, Receipt, Briefcase, Play, Radio } from 'lucide-react';
 import { authenticate, setTokenManually } from '@/services/remateweb-api';
 import { addDocument, getCollection, deleteDocument, setDocument, getDocument } from '@/lib/firestore';
+import { useCatalogs } from '@/lib/useCatalogs';
+import { DEFAULT_PAYMENT_CONDITION } from '@/types/event';
 import { ContractType, HourRange } from '@/types/operator';
 import {
   ServiceDef, ServiceNature, ServicesSettings, SERVICE_NATURE_LABELS,
@@ -18,7 +20,15 @@ interface Holiday {
 }
 
 export default function ConfiguracoesPage() {
-  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'modelos' | 'fiscal' | 'api' | 'feriados'>('funcoes');
+  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'pagamentos' | 'catalogos' | 'modelos' | 'fiscal' | 'api' | 'feriados'>('funcoes');
+
+  // Condições de pagamento padrão (dropdown no cadastro de leilão)
+  const [payConds, setPayConds] = useState<string[]>([]);
+  const [newPayCond, setNewPayCond] = useState('');
+  const [payCondsLoaded, setPayCondsLoaded] = useState(false);
+
+  // Catálogos RemateWeb (somente leitura)
+  const { catalogs, loading: catalogsLoading } = useCatalogs();
 
   // API config
   const [apiUser, setApiUser] = useState('');
@@ -202,6 +212,42 @@ export default function ConfiguracoesPage() {
     showToast('Estúdio removido.');
   };
 
+  // --- Condições de Pagamento padrão ---
+  const loadPayConds = useCallback(async () => {
+    try {
+      const doc = await getDocument<{ list: string[] }>('settings', 'paymentConditions');
+      if (doc) {
+        setPayConds(doc.list || []);
+      } else {
+        const defaults = [DEFAULT_PAYMENT_CONDITION];
+        await setDocument('settings', 'paymentConditions', { list: defaults });
+        setPayConds(defaults);
+      }
+      setPayCondsLoaded(true);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  const savePayConds = async (updated: string[]) => {
+    await setDocument('settings', 'paymentConditions', { list: updated });
+    setPayConds(updated);
+  };
+
+  const handleAddPayCond = async () => {
+    const trimmed = newPayCond.trim();
+    if (!trimmed) return;
+    if (payConds.includes(trimmed)) { showToast('Condição já cadastrada.', 'error'); return; }
+    await savePayConds([...payConds, trimmed]);
+    setNewPayCond('');
+    showToast('Condição adicionada!');
+  };
+
+  const handleDeletePayCond = async (cond: string) => {
+    await savePayConds(payConds.filter((c) => c !== cond));
+    showToast('Condição removida.');
+  };
+
   // --- Default Payment Rules ---
   const loadDefaultRules = useCallback(async (type: ContractType) => {
     try {
@@ -342,6 +388,7 @@ export default function ConfiguracoesPage() {
     if (activeTab === 'funcoes' && !rolesLoaded) loadRoles();
     if (activeTab === 'servicos' && !servicesLoaded) loadServices();
     if (activeTab === 'estudios' && !studiosLoaded) loadStudios();
+    if (activeTab === 'pagamentos' && !payCondsLoaded) loadPayConds();
     if (activeTab === 'modelos') loadDefaultRules(selectedContractType);
     if (activeTab === 'feriados' && !holidaysLoaded) loadHolidays();
     if (activeTab === 'fiscal' && !fiscalLoaded) {
@@ -356,7 +403,7 @@ export default function ConfiguracoesPage() {
         } catch { setFiscalLoaded(true); }
       })();
     }
-  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, selectedContractType, holidaysLoaded, fiscalLoaded, loadRoles, loadServices, loadStudios, loadDefaultRules]);
+  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, payCondsLoaded, selectedContractType, holidaysLoaded, fiscalLoaded, loadRoles, loadServices, loadStudios, loadPayConds, loadDefaultRules]);
 
   return (
     <div>
@@ -381,6 +428,14 @@ export default function ConfiguracoesPage() {
         <button className={`tab ${activeTab === 'estudios' ? 'active' : ''}`} onClick={() => setActiveTab('estudios')}>
           <Radio size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
           Estúdios
+        </button>
+        <button className={`tab ${activeTab === 'pagamentos' ? 'active' : ''}`} onClick={() => setActiveTab('pagamentos')}>
+          <Receipt size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+          Condições de Pagamento
+        </button>
+        <button className={`tab ${activeTab === 'catalogos' ? 'active' : ''}`} onClick={() => setActiveTab('catalogos')}>
+          <Globe size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+          Catálogos RemateWeb
         </button>
         <button className={`tab ${activeTab === 'modelos' ? 'active' : ''}`} onClick={() => setActiveTab('modelos')}>
           <Briefcase size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
@@ -575,6 +630,90 @@ export default function ConfiguracoesPage() {
               <Plus size={16} /> Adicionar
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Condições de Pagamento Tab */}
+      {activeTab === 'pagamentos' && (
+        <div className="card animate-in" style={{ maxWidth: '600px' }}>
+          <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>Condições de Pagamento Padrão</h3>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>
+            As condições mais usadas aparecem como dropdown no cadastro de leilão.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '20px' }}>
+            {payConds.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Nenhuma condição cadastrada.</p>}
+            {payConds.map((cond, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: '10px',
+                padding: '10px 14px',
+                background: 'var(--bg-surface-elevated)',
+                borderRadius: 'var(--radius-md)',
+              }}>
+                <span style={{ flex: 1, fontSize: '14px', fontWeight: 500 }}>{cond}</span>
+                <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleDeletePayCond(cond)} style={{ color: 'var(--error)' }}>
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <input
+              className="input"
+              placeholder="Ex: 2+2+2+2+2+20=30"
+              value={newPayCond}
+              onChange={(e) => setNewPayCond(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddPayCond()}
+              style={{ flex: 1 }}
+            />
+            <button className="btn btn-primary" onClick={handleAddPayCond} disabled={!newPayCond.trim()}>
+              <Plus size={16} /> Adicionar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Catálogos RemateWeb Tab (somente leitura) */}
+      {activeTab === 'catalogos' && (
+        <div className="card animate-in">
+          <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>Catálogos RemateWeb</h3>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>
+            Dados lidos da API RemateWeb (somente leitura). Para criar/editar, use o painel RemateWeb — a edição direta por aqui entra numa fase futura.
+            {catalogsLoading && ' · carregando…'}
+          </p>
+
+          {(() => {
+            const cats: { label: string; items: { id: number; name: string }[] }[] = [
+              { label: 'Tipos de Raça', items: catalogs.breedTypes },
+              { label: 'Raças', items: catalogs.breeds },
+              { label: 'Parceiros', items: catalogs.partners },
+              { label: 'Canais', items: catalogs.channels },
+              { label: 'Canais de Transmissão (Streaming)', items: catalogs.streamings },
+              { label: 'Grupos de Regra de Lance', items: catalogs.bidIncrementGroups },
+              { label: 'Unidades', items: catalogs.unities },
+            ];
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '16px' }}>
+                {cats.map((cat) => (
+                  <div key={cat.label} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <strong style={{ fontSize: '13px' }}>{cat.label}</strong>
+                      <span className="badge badge-info">{cat.items.length}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '200px', overflowY: 'auto', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      {cat.items.length === 0 ? (
+                        <span style={{ color: 'var(--text-muted)' }}>{catalogsLoading ? '…' : 'vazio (requer token RemateWeb)'}</span>
+                      ) : (
+                        cat.items.slice(0, 100).map((it) => <span key={it.id}>{it.name}</span>)
+                      )}
+                      {cat.items.length > 100 && <span style={{ color: 'var(--text-muted)' }}>+{cat.items.length - 100} mais…</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 

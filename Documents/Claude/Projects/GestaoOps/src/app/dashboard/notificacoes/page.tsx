@@ -9,6 +9,20 @@ import { GestaoEvent } from '@/types/event';
 import { useAuth } from '@/lib/auth-context';
 import { Bell, Send, Trash2, Users, Tag, X, Check } from 'lucide-react';
 
+function toEventDate(val: unknown): Date | null {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (typeof val === 'object' && val !== null && 'toDate' in val) {
+    const d = (val as { toDate: () => Date }).toDate();
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof val === 'string') {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
 export default function NotificacoesPage() {
   const { profile } = useAuth();
   const { catalogs, loading: catalogsLoading } = useCatalogs();
@@ -60,11 +74,27 @@ export default function NotificacoesPage() {
     return () => { active = false; };
   }, []);
 
-  // Leilões vinculáveis: eventos já importados da RemateWeb (têm rematewebId).
-  const linkableAuctions = useMemo(
-    () => events.filter((e) => e.rematewebId != null),
-    [events],
-  );
+  // Leilões do dia: eventos cuja data é hoje (dropdown principal da notificação).
+  const todayEvents = useMemo(() => {
+    const now = new Date();
+    const sameDay = (d: Date) =>
+      d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    return events.filter((e) => {
+      const d = toEventDate(e.date);
+      return d && sameDay(d);
+    });
+  }, [events]);
+
+  // Ao escolher um leilão, pré-preenche título/mensagem/raças com base no cadastro.
+  const handleSelectAuction = (eventId: string) => {
+    setAuctionEventId(eventId);
+    const ev = todayEvents.find((e) => e.id === eventId);
+    if (!ev) return;
+    setTitle('Remate Web Ao Vivo!');
+    setMessage(ev.title || '');
+    const breedId = ev.auctionData?.breedId;
+    setSelectedBreeds(breedId ? new Set([breedId]) : new Set());
+  };
 
   // Raças agrupadas por tipo (Bovinos, Equinos, Máquinas...), igual ao painel.
   const breedGroups = useMemo(() => {
@@ -114,7 +144,7 @@ export default function NotificacoesPage() {
     try {
       const breedIds = Array.from(selectedBreeds);
       const breedNames = catalogs.breeds.filter((b) => selectedBreeds.has(b.id)).map((b) => b.name);
-      const linkedEvent = linkableAuctions.find((e) => e.id === auctionEventId);
+      const linkedEvent = todayEvents.find((e) => e.id === auctionEventId);
 
       await createNotification({
         title: title.trim(),
@@ -171,30 +201,32 @@ export default function NotificacoesPage() {
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Nova Notificação</h3>
 
-          <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div className="input-group">
-              <label>Título *</label>
-              <input className="input" placeholder="Título da notificação" value={title} onChange={(e) => setTitle(e.target.value)} />
-            </div>
-            <div className="input-group">
-              <label>Leilão (opcional)</label>
-              <select className="input" value={auctionEventId} onChange={(e) => setAuctionEventId(e.target.value)}>
-                <option value="">Nenhum (sistema)</option>
-                {linkableAuctions.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
-              </select>
-            </div>
+          <div className="input-group">
+            <label>Leilão do dia (opcional)</label>
+            <select className="input" value={auctionEventId} onChange={(e) => handleSelectAuction(e.target.value)}>
+              <option value="">Nenhum (sistema)</option>
+              {todayEvents.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
+            </select>
+            {auctionEventId ? (
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Vinculada a um leilão → categoria <strong>AuctionReminder</strong>. Título, mensagem e raça foram preenchidos automaticamente.
+              </p>
+            ) : (
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                {todayEvents.length === 0 ? 'Nenhum leilão agendado para hoje.' : 'Selecione um leilão de hoje para preencher os campos automaticamente.'}
+              </p>
+            )}
+          </div>
+
+          <div className="input-group">
+            <label>Título *</label>
+            <input className="input" placeholder="Título da notificação" value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
 
           <div className="input-group">
             <label>Mensagem *</label>
             <textarea className="input" rows={2} placeholder="Mensagem, seja breve" value={message} onChange={(e) => setMessage(e.target.value)} style={{ resize: 'vertical' }} />
           </div>
-
-          {auctionEventId && (
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-6px' }}>
-              Vinculada a um leilão → categoria <strong>AuctionReminder</strong>.
-            </p>
-          )}
 
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '8px' }}>
             <input type="checkbox" checked={sendToOthers} onChange={(e) => setSendToOthers(e.target.checked)} />

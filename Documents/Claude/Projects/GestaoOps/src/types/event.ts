@@ -60,6 +60,9 @@ export interface AuctionRegistration {
 }
 
 // Estado inicial do bloco de dados do leilão (padrões iguais aos do painel).
+// Condição de pagamento padrão pré-preenchida no cadastro.
+export const DEFAULT_PAYMENT_CONDITION = '2+2+2+2+2+20=30';
+
 export function emptyAuctionRegistration(): AuctionRegistration {
   return {
     saleType: 1,        // Normal
@@ -71,13 +74,13 @@ export function emptyAuctionRegistration(): AuctionRegistration {
     channelId: null,
     streamingId: null,
     streamingName: '',
-    breedId: null,
-    breedName: '',
+    breedId: 1,                 // Nelore PO (raça mais comum) pré-selecionada
+    breedName: 'Nelore PO',
     bidIncrementGroupId: null,
     bidIncrementGroupName: '',
-    increment: null,
-    captation: null,
-    paymentConditions: '',
+    increment: 10,              // incremento padrão
+    captation: 30,              // captação padrão
+    paymentConditions: DEFAULT_PAYMENT_CONDITION,
     youtubePlaylist: '',
     youtubeId: '',
     visible: false,

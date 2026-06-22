@@ -10,7 +10,6 @@ import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import CurrencyInput from '@/components/CurrencyInput';
 import {
   Plus, Search, Download, Gavel, Clock, MapPin,
   Filter, RefreshCw, AlertCircle, Check, Trash2,
@@ -35,6 +34,7 @@ export default function EventosPage() {
   const [sortOrder, setSortOrder] = useState<'date_asc' | 'date_desc' | 'title_az' | 'title_za'>('date_asc');
   const [filterChannel, setFilterChannel] = useState('all');
   const [filterService, setFilterService] = useState('all');
+  const [filterAuction, setFilterAuction] = useState<'all' | 'sem' | 'com'>('all');
   // Período: vazio por padrão = exibe todos os eventos.
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -71,8 +71,6 @@ export default function EventosPage() {
   const [manualEndDate, setManualEndDate] = useState('');
   const [manualOpType, setManualOpType] = useState<OperationType | ''>('');
   const [manualStudio, setManualStudio] = useState('');
-  const [manualRevenue, setManualRevenue] = useState(0);
-  const [manualChannel, setManualChannel] = useState('');
   const [manualCity, setManualCity] = useState('');
   const [manualState, setManualState] = useState('');
   const [manualNotes, setManualNotes] = useState('');
@@ -89,21 +87,24 @@ export default function EventosPage() {
   // Db Configs
   const [studios, setStudios] = useState<string[]>([]);
   const [services, setServices] = useState<string[]>([]);
+  const [paymentCondOptions, setPaymentCondOptions] = useState<string[]>([]);
   const [holidays, setHolidays] = useState<{ date: string }[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setLoadError('');
     try {
-      const [evts, studiosDoc, servicesDoc, hols] = await Promise.all([
+      const [evts, studiosDoc, servicesDoc, payCondDoc, hols] = await Promise.all([
         getEvents(),
         getDocument<{ list: string[] }>('settings', 'studios').catch(() => null),
         getDocument<{ list: string[] }>('settings', 'services').catch(() => null),
+        getDocument<{ list: string[] }>('settings', 'paymentConditions').catch(() => null),
         getCollection<{ date: string }>('holidays').catch(() => []),
       ]);
       setEvents(evts);
       if (studiosDoc) setStudios(studiosDoc.list || []);
       if (servicesDoc) setServices(servicesDoc.list || []);
+      if (payCondDoc) setPaymentCondOptions(payCondDoc.list || []);
       setHolidays(hols);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -153,7 +154,9 @@ export default function EventosPage() {
     const matchType = filterType === 'all' || e.operationType === filterType;
     const matchChannel = filterChannel === 'all' || (e.channelName || '').trim() === filterChannel;
     const matchService = filterService === 'all' || (e.services || []).some((s) => s.serviceName === filterService);
-    return matchPeriod && matchSearch && matchStatus && matchType && matchChannel && matchService;
+    const hasAuction = !!e.auctionData;
+    const matchAuction = filterAuction === 'all' || (filterAuction === 'sem' ? !hasAuction : hasAuction);
+    return matchPeriod && matchSearch && matchStatus && matchType && matchChannel && matchService && matchAuction;
   });
 
   // Opções de canal e serviço derivadas dos eventos carregados
@@ -288,12 +291,10 @@ export default function EventosPage() {
       const isInternal = manualService ? isInternalService(manualService) : (manualOpType === 'estudio');
       const resolvedOpType = isInternal ? 'estudio' : (manualOpType || 'externo');
 
-      // Canal/organização: prioriza o catálogo RemateWeb quando os campos do
-      // leilão foram preenchidos; senão usa o canal digitado.
+      // Canal vem do dropdown do catálogo RemateWeb; organização = realizador.
       const selectedChannel = catalogs.channels.find((c) => c.id === auctionForm.channelId);
-      const selectedOrg = catalogs.partners.find((p) => p.id === auctionForm.organizationId);
-      const resolvedChannel = selectedChannel?.name || manualChannel || 'RemateWeb';
-      const resolvedOrg = selectedOrg?.name || 'Manual';
+      const resolvedChannel = selectedChannel?.name || 'RemateWeb';
+      const resolvedOrg = auctionForm.partnerName || 'Manual';
 
       const docId = await createEvent({
         rematewebId: null,
@@ -308,7 +309,7 @@ export default function EventosPage() {
         place: isInternal ? (manualStudio || 'Estúdio Sede') : '',
         channelName: resolvedChannel,
         organizationName: resolvedOrg,
-        revenue: manualRevenue,
+        revenue: 0, // receita é preenchida pelo comercial na edição
         actualRevenue: 0,
         status: 'pendente',
         commercialIntermediary: '',
@@ -331,8 +332,6 @@ export default function EventosPage() {
       setManualEndDate('');
       setManualOpType('');
       setManualStudio('');
-      setManualRevenue(0);
-      setManualChannel('');
       setManualCity('');
       setManualState('');
       setManualNotes('');
@@ -598,6 +597,11 @@ export default function EventosPage() {
         <select className="input" value={filterService} onChange={(e) => setFilterService(e.target.value)} style={{ width: 'auto' }} title="Filtrar por serviço">
           <option value="all">Todos os Serviços</option>
           {serviceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select className="input" value={filterAuction} onChange={(e) => setFilterAuction(e.target.value as typeof filterAuction)} style={{ width: 'auto' }} title="Filtrar por dados do leilão">
+          <option value="all">Dados do Leilão: todos</option>
+          <option value="sem">Sem dados do leilão</option>
+          <option value="com">Com dados do leilão</option>
         </select>
         <select className="input" value={sortOrder} onChange={(e) => setSortOrder(e.target.value as typeof sortOrder)} style={{ width: 'auto' }} title="Ordenação">
           <option value="date_asc">Data ↑ (mais antigos)</option>
@@ -996,19 +1000,9 @@ export default function EventosPage() {
                 </div>
               )}
 
-              <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                <div className="input-group">
-                  <label>Receita (R$)</label>
-                  <CurrencyInput value={manualRevenue} onChange={setManualRevenue} />
-                </div>
-                <div className="input-group">
-                  <label>Canal de Transmissão</label>
-                  <input className="input" placeholder="Ex: Canal do Boi" value={manualChannel} onChange={(e) => setManualChannel(e.target.value)} />
-                </div>
-                <div className="input-group">
-                  <label>Cidade</label>
-                  <input className="input" placeholder="Ex: Campo Grande" value={manualCity} onChange={(e) => setManualCity(e.target.value)} />
-                </div>
+              <div className="input-group">
+                <label>Cidade</label>
+                <input className="input" placeholder="Ex: Campo Grande" value={manualCity} onChange={(e) => setManualCity(e.target.value)} />
               </div>
 
               {/* Dados do Leilão no formato RemateWeb (cadastro que substituirá o painel-net9) */}
@@ -1041,25 +1035,16 @@ export default function EventosPage() {
                     </div>
                   </div>
 
-                  <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label>Organização</label>
-                      <select className="input" value={auctionForm.organizationId ?? ''} onChange={(e) => setAF('organizationId', e.target.value === '' ? null : Number(e.target.value))}>
-                        <option value="">Selecione...</option>
-                        {catalogs.partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="input-group">
-                      <label>Realizador (Leiloeira)</label>
-                      <select className="input" value={auctionForm.partnerId ?? ''} onChange={(e) => {
-                        const id = e.target.value === '' ? null : Number(e.target.value);
-                        setAF('partnerId', id);
-                        setAF('partnerName', catalogs.eventMakers.find((p) => p.id === id)?.name || '');
-                      }}>
-                        <option value="">Selecione...</option>
-                        {catalogs.eventMakers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                    </div>
+                  <div className="input-group">
+                    <label>Realizador (Leiloeira)</label>
+                    <select className="input" value={auctionForm.partnerId ?? ''} onChange={(e) => {
+                      const id = e.target.value === '' ? null : Number(e.target.value);
+                      setAF('partnerId', id);
+                      setAF('partnerName', catalogs.eventMakers.find((p) => p.id === id)?.name || '');
+                    }}>
+                      <option value="">Selecione...</option>
+                      {catalogs.eventMakers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
                   </div>
 
                   <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
@@ -1108,17 +1093,23 @@ export default function EventosPage() {
                     </div>
                     <div className="input-group">
                       <label>Incremento (R$)</label>
-                      <input className="input" type="number" min="0" step="0.01" placeholder="Ex: 100" value={auctionForm.increment ?? ''} onChange={(e) => setAF('increment', e.target.value === '' ? null : Number(e.target.value))} />
+                      <input className="input no-spinner" type="number" min="0" step="0.01" value={auctionForm.increment ?? ''} onChange={(e) => setAF('increment', e.target.value === '' ? null : Number(e.target.value))} />
                     </div>
                     <div className="input-group">
                       <label>Captação</label>
-                      <input className="input" type="number" min="0" placeholder="Ex: 0" value={auctionForm.captation ?? ''} onChange={(e) => setAF('captation', e.target.value === '' ? null : Number(e.target.value))} />
+                      <input className="input no-spinner" type="number" min="0" value={auctionForm.captation ?? ''} onChange={(e) => setAF('captation', e.target.value === '' ? null : Number(e.target.value))} />
                     </div>
                   </div>
 
                   <div className="input-group">
                     <label>Condição de Pagamento Padrão</label>
-                    <input className="input" placeholder="Ex: 30/60/90 dias" value={auctionForm.paymentConditions} onChange={(e) => setAF('paymentConditions', e.target.value)} />
+                    {paymentCondOptions.length > 0 && (
+                      <select className="input" style={{ marginBottom: '6px' }} value={paymentCondOptions.includes(auctionForm.paymentConditions) ? auctionForm.paymentConditions : ''} onChange={(e) => { if (e.target.value) setAF('paymentConditions', e.target.value); }}>
+                        <option value="">Condições mais usadas…</option>
+                        {paymentCondOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    )}
+                    <input className="input" placeholder="Ex: 2+2+2+2+2+20=30" value={auctionForm.paymentConditions} onChange={(e) => setAF('paymentConditions', e.target.value)} />
                   </div>
 
                   <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
