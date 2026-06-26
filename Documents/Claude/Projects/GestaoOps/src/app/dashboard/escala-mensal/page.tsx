@@ -238,14 +238,18 @@ export default function EscalaMensalPage() {
     return m;
   }, [events]);
 
-  // Define/retira um leilão de um estúdio (E1-E4): grava event.studioName.
+  // Define/retira um leilão de um estúdio (E1-E4): grava no PRÓPRIO evento
+  // (studioName + operationType). É a mesma ação do cadastro de evento — então
+  // definir aqui reflete lá, e definir lá popula aqui (mesma fonte: o evento).
   const assignStudioSlot = async (evt: EventWithId, slot: string) => {
     const isHere = (evt.studioName || '') === slot;
-    const newName = isHere ? '' : slot;
-    setEvents((prev) => prev.map((e) => e.id === evt.id ? { ...e, studioName: newName } : e));
+    const patch: Partial<GestaoEvent> = isHere
+      ? { studioName: '' }                          // tira do estúdio (mantém o tipo)
+      : { studioName: slot, operationType: 'estudio' }; // define estúdio = vira evento de estúdio
+    setEvents((prev) => prev.map((e) => e.id === evt.id ? { ...e, ...patch } : e));
     setSaving(true);
     try {
-      await updateEvent(evt.id, { studioName: newName });
+      await updateEvent(evt.id, patch);
     } catch (err) {
       console.error(err);
       showToast('Erro ao definir estúdio. Recarregando…', 'error');
@@ -391,26 +395,26 @@ export default function EscalaMensalPage() {
         </div>
       )}
 
-      <div className="table-container" style={{ overflowX: 'auto', border: '0.5px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+      <div className="table-container" style={{ overflowX: 'scroll', overflowY: 'auto', maxHeight: 'calc(100vh - 230px)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
         <table className="table" style={{ fontSize: '11.5px', borderCollapse: 'collapse', minWidth: `${260 + days.length * 88}px` }}>
           <thead>
             <tr>
-              <th style={{ position: 'sticky', left: 0, background: 'var(--bg-surface-elevated)', zIndex: 2, textAlign: 'left', minWidth: '160px' }}>Operador</th>
+              <th style={{ position: 'sticky', left: 0, top: 0, background: 'var(--bg-surface-elevated)', zIndex: 4, textAlign: 'left', minWidth: '160px' }}>Operador</th>
               {days.map((d) => {
                 const dow = getDay(d);
                 const red = dow === 0 || dow === 6 || isHoliday(d);
                 const today = isSameDay(d, new Date());
                 return (
-                  <th key={d.toISOString()} style={{ textAlign: 'center', padding: '4px 2px', minWidth: '84px', color: today ? 'var(--primary)' : red ? '#ef4444' : 'var(--text-secondary)', background: isHoliday(d) ? 'rgba(239,68,68,0.06)' : undefined }}>
+                  <th key={d.toISOString()} style={{ position: 'sticky', top: 0, zIndex: 3, textAlign: 'center', padding: '4px 2px', minWidth: '84px', color: today ? 'var(--primary)' : red ? '#ef4444' : 'var(--text-secondary)', background: 'var(--bg-surface-elevated)' }}>
                     <div style={{ fontSize: '12px', fontWeight: today ? 700 : 500 }}>{format(d, 'd')}</div>
                     <div style={{ fontSize: '9px', opacity: 0.8 }}>{isHoliday(d) ? 'Fer' : WEEKDAY[dow]}</div>
                   </th>
                 );
               })}
               {weeks.labels.map((w) => (
-                <th key={w} style={{ textAlign: 'center', minWidth: '52px', background: '#EAF3DE', color: '#3B6D11' }}>{w}</th>
+                <th key={w} style={{ position: 'sticky', top: 0, zIndex: 3, textAlign: 'center', minWidth: '52px', background: '#EAF3DE', color: '#3B6D11' }}>{w}</th>
               ))}
-              <th style={{ textAlign: 'center', minWidth: '70px', background: 'var(--bg-surface-elevated)' }}>Mês</th>
+              <th style={{ position: 'sticky', top: 0, zIndex: 3, textAlign: 'center', minWidth: '70px', background: 'var(--bg-surface-elevated)' }}>Mês</th>
             </tr>
           </thead>
           <tbody>
@@ -510,7 +514,9 @@ export default function EscalaMensalPage() {
                             outline: isOpen ? '2px solid var(--primary)' : undefined,
                           }}
                         >
-                          {cell.map(({ evt, a }) => {
+                          {cell.map(({ evt, a, value, isReal }) => {
+                            // Estúdio ainda não ocorrido = valor provisório (aguarda finalização) → amarelo médio.
+                            const studioPending = isStudioEvent(evt) && !isReal;
                             return (
                               <div key={evt.id} style={{ marginBottom: '3px', lineHeight: 1.2 }}>
                                 <div style={{ fontSize: '10px', fontWeight: 500 }} title={evt.title}>
@@ -519,6 +525,9 @@ export default function EscalaMensalPage() {
                                 {(a.shiftTime || evt.date) && (
                                   <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{a.shiftTime || format(toDate(evt.date), 'HH:mm')}</div>
                                 )}
+                                <div style={{ fontSize: '10px', fontWeight: 700, color: value === 0 ? 'var(--text-muted)' : studioPending ? '#C77F0A' : isReal ? 'var(--success)' : 'var(--text-secondary)' }} title={studioPending ? 'Estúdio — valor provisório até a finalização' : undefined}>
+                                  {value === 0 ? 'R$ 0' : `${isReal ? '' : '~'}R$ ${Math.round(value)}`}
+                                </div>
                               </div>
                             );
                           })}
