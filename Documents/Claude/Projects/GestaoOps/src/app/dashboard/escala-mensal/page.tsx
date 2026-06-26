@@ -18,6 +18,7 @@ type EventWithId = GestaoEvent & { id: string };
 type OperatorWithId = Operator & { id: string };
 
 const MT_DEFAULT_VALUE = 450; // Estúdio MT (Cuiabá) — valor fixo por evento (configurável)
+const VIAGEM_VALUE = 200; // Atividade "Viagem" gera diária fixa
 const STUDIO_SLOTS = ['Estúdio 1', 'Estúdio 2', 'Estúdio 3', 'Estúdio 4'];
 
 // Um evento é "de estúdio" (candidato a ocupar um estúdio E1-E4).
@@ -271,15 +272,27 @@ export default function EscalaMensalPage() {
         const dm = eg.get(a.operatorId)!;
         if (!dm.has(k)) dm.set(k, []);
         dm.get(k)!.push({ evt: e, a, value, isReal });
-        if (d >= monthStart && d <= monthEnd) {
+        // Totais contam estúdio/externo (não retransmissão, que não escala equipe).
+        if (e.operationType !== 'retransmissao' && d >= monthStart && d <= monthEnd) {
           totals.set(a.operatorId, (totals.get(a.operatorId) || 0) + value);
           if (!wTotals.has(a.operatorId)) wTotals.set(a.operatorId, new Array(weeks.labels.length).fill(0));
           wTotals.get(a.operatorId)![weeks.indexOf(d)] += value;
         }
       }
     }
+    // Atividade "Viagem" (rótulo manual) gera diária fixa de R$200.
+    for (const [key, label] of notes) {
+      if (label.trim().toLowerCase() !== 'viagem') continue;
+      const sep = key.indexOf('|');
+      const opId = key.slice(0, sep);
+      const d = new Date(key.slice(sep + 1));
+      if (d < monthStart || d > monthEnd) continue;
+      totals.set(opId, (totals.get(opId) || 0) + VIAGEM_VALUE);
+      if (!wTotals.has(opId)) wTotals.set(opId, new Array(weeks.labels.length).fill(0));
+      wTotals.get(opId)![weeks.indexOf(d)] += VIAGEM_VALUE;
+    }
     return { enrichedGrid: eg, monthTotals: totals, weekTotals: wTotals };
-  }, [events, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd, weeks]);
+  }, [events, notes, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd, weeks]);
 
   // ----- mutations -----
   const toggleAssign = async (evt: EventWithId, op: OperatorWithId) => {
@@ -481,8 +494,8 @@ export default function EscalaMensalPage() {
                       const k = dayKey(d);
                       const dow = getDay(d);
                       const red = dow === 0 || dow === 6 || isHoliday(d);
-                      // Escala de operadores: só eventos de estúdio (sem externas/retransmissões).
-                      const cell = (enrichedGrid.get(op.id)?.get(k) || []).filter((c) => isStudioEvent(c.evt));
+                      // Escala de operadores: estúdio + externo (sem retransmissão, que não escala equipe).
+                      const cell = (enrichedGrid.get(op.id)?.get(k) || []).filter((c) => c.evt.operationType !== 'retransmissao');
                       const note = notes.get(`${op.id}|${k}`);
                       const rest = isOperatorRestDay(op, d);
                       const isOpen = openCell?.rowId === op.id && openCell?.key === k;
@@ -510,13 +523,15 @@ export default function EscalaMensalPage() {
                             );
                           })}
                           {note && (
-                            <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '58px' }} title={note}>{note}</div>
+                            <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '58px' }} title={note}>
+                              {note}{note.trim().toLowerCase() === 'viagem' ? <span style={{ color: 'var(--accent)', fontStyle: 'normal', fontWeight: 600 }}> · R$ {VIAGEM_VALUE}</span> : null}
+                            </div>
                           )}
                           {rest && cell.length === 0 && !note && <span style={{ fontSize: '9px', color: '#ef4444' }}>Folga</span>}
 
                           {isOpen && (
                             <CellPicker
-                              dayEvents={(eventsByDay.get(k) || []).filter(isStudioEvent)}
+                              dayEvents={(eventsByDay.get(k) || []).filter((e) => e.operationType !== 'retransmissao')}
                               operatorId={op.id}
                               note={note || ''}
                               onSaveNote={(label) => saveNote(op.id, k, label)}
@@ -552,7 +567,7 @@ export default function EscalaMensalPage() {
       </div>
 
       <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '10px' }}>
-        Escala de operadores mostra apenas eventos de estúdio (externas ficam na seção do topo; retransmissões não escalam equipe) · totais Semana/Mês em R$ (estimado/real, MT = R$ {mtValue} fixo) · colunas em vermelho = fim de semana/feriado.
+        Escala de operadores: eventos de estúdio e externos (retransmissões não escalam equipe) · atividade &quot;Viagem&quot; gera R$ {VIAGEM_VALUE} · totais Semana/Mês em R$ (MT = R$ {mtValue} fixo) · colunas em vermelho = fim de semana/feriado.
       </p>
     </div>
   );
