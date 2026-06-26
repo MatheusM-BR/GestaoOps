@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { getEvents, assignOperator, removeAssignment } from '@/services/events';
+import { getEvents, assignOperator, removeAssignment, updateEvent } from '@/services/events';
 import { getActiveOperators } from '@/services/operators';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { GestaoEvent, EventAssignment } from '@/types/event';
@@ -18,6 +18,12 @@ type EventWithId = GestaoEvent & { id: string };
 type OperatorWithId = Operator & { id: string };
 
 const MT_DEFAULT_VALUE = 450; // Estúdio MT (Cuiabá) — valor fixo por evento (configurável)
+const STUDIO_SLOTS = ['Estúdio 1', 'Estúdio 2', 'Estúdio 3', 'Estúdio 4'];
+
+// Um evento é "de estúdio" (candidato a ocupar um estúdio E1-E4).
+function isStudioEvent(e: GestaoEvent): boolean {
+  return e.operationType === 'estudio' || !!e.studioName;
+}
 
 function toDate(val: unknown): Date {
   if (!val) return new Date();
@@ -63,7 +69,7 @@ export default function EscalaMensalPage() {
   const [toast, setToast] = useState<{ message: string; type: string } | null>(null);
 
   // Célula aberta (operador × dia) e função/hora a aplicar.
-  const [openCell, setOpenCell] = useState<{ opId: string; key: string } | null>(null);
+  const [openCell, setOpenCell] = useState<{ rowId: string; key: string } | null>(null);
   const [cellRole, setCellRole] = useState('');
   const [cellTime, setCellTime] = useState('');
 
@@ -200,6 +206,62 @@ export default function EscalaMensalPage() {
     return m;
   }, [events]);
 
+  // Externas por dia (linha "Externas" no topo).
+  const externalByDay = useMemo(() => {
+    const m = new Map<string, EventWithId[]>();
+    for (const e of events) {
+      if (e.operationType !== 'externo') continue;
+      const k = dayKey(toDate(e.date));
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(e);
+    }
+    return m;
+  }, [events]);
+
+  // Eventos de estúdio por dia (para o dropdown das linhas Estúdio 1-4).
+  const studioEventsByDay = useMemo(() => {
+    const m = new Map<string, EventWithId[]>();
+    for (const e of events) {
+      if (!isStudioEvent(e)) continue;
+      const k = dayKey(toDate(e.date));
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(e);
+    }
+    return m;
+  }, [events]);
+
+  // Slot de estúdio → dia → eventos definidos naquele estúdio (studioName === slot).
+  const studioSlotGrid = useMemo(() => {
+    const m = new Map<string, Map<string, EventWithId[]>>();
+    for (const slot of STUDIO_SLOTS) m.set(slot, new Map());
+    for (const e of events) {
+      const slot = e.studioName || '';
+      if (!m.has(slot)) continue;
+      const k = dayKey(toDate(e.date));
+      const dm = m.get(slot)!;
+      if (!dm.has(k)) dm.set(k, []);
+      dm.get(k)!.push(e);
+    }
+    return m;
+  }, [events]);
+
+  // Define/retira um leilão de um estúdio (E1-E4): grava event.studioName.
+  const assignStudioSlot = async (evt: EventWithId, slot: string) => {
+    const isHere = (evt.studioName || '') === slot;
+    const newName = isHere ? '' : slot;
+    setEvents((prev) => prev.map((e) => e.id === evt.id ? { ...e, studioName: newName } : e));
+    setSaving(true);
+    try {
+      await updateEvent(evt.id, { studioName: newName });
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao definir estúdio. Recarregando…', 'error');
+      await loadData();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Grade enriquecida (operador → dia → escalas com valor) + total do mês por
   // operador. Tudo computado UMA vez por mudança de dados — sem custo por render.
   type Cell = { evt: EventWithId; a: EventAssignment; value: number; isReal: boolean };
@@ -325,7 +387,7 @@ export default function EscalaMensalPage() {
       )}
 
       <div className="table-container" style={{ overflowX: 'auto', border: '0.5px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
-        <table className="table" style={{ fontSize: '11.5px', borderCollapse: 'collapse', minWidth: `${260 + days.length * 64}px` }}>
+        <table className="table" style={{ fontSize: '11.5px', borderCollapse: 'collapse', minWidth: `${260 + days.length * 88}px` }}>
           <thead>
             <tr>
               <th style={{ position: 'sticky', left: 0, background: 'var(--bg-surface-elevated)', zIndex: 2, textAlign: 'left', minWidth: '160px' }}>Operador</th>
@@ -334,7 +396,7 @@ export default function EscalaMensalPage() {
                 const red = dow === 0 || dow === 6 || isHoliday(d);
                 const today = isSameDay(d, new Date());
                 return (
-                  <th key={d.toISOString()} style={{ textAlign: 'center', padding: '4px 2px', minWidth: '62px', color: today ? 'var(--primary)' : red ? '#ef4444' : 'var(--text-secondary)', background: isHoliday(d) ? 'rgba(239,68,68,0.06)' : undefined }}>
+                  <th key={d.toISOString()} style={{ textAlign: 'center', padding: '4px 2px', minWidth: '84px', color: today ? 'var(--primary)' : red ? '#ef4444' : 'var(--text-secondary)', background: isHoliday(d) ? 'rgba(239,68,68,0.06)' : undefined }}>
                     <div style={{ fontSize: '12px', fontWeight: today ? 700 : 500 }}>{format(d, 'd')}</div>
                     <div style={{ fontSize: '9px', opacity: 0.8 }}>{isHoliday(d) ? 'Fer' : WEEKDAY[dow]}</div>
                   </th>
@@ -347,6 +409,72 @@ export default function EscalaMensalPage() {
             </tr>
           </thead>
           <tbody>
+            {/* ===== Técnica / Estúdio: definição dos leilões do dia ===== */}
+            <tr>
+              <td colSpan={days.length + 2 + weeks.labels.length} style={{ background: 'var(--bg-surface-elevated)', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', padding: '5px 10px' }}>
+                <Monitor size={12} style={{ verticalAlign: 'middle', marginRight: '6px' }} />Técnica / Estúdio — leilões do dia
+              </td>
+            </tr>
+            {/* Externas */}
+            <tr>
+              <td style={{ position: 'sticky', left: 0, background: 'var(--bg-surface)', zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap' }}>RW / Externas</td>
+              {days.map((d) => {
+                const k = dayKey(d);
+                const dow = getDay(d);
+                const red = dow === 0 || dow === 6 || isHoliday(d);
+                const exts = externalByDay.get(k) || [];
+                return (
+                  <td key={k} style={{ verticalAlign: 'top', padding: '3px 4px', background: exts.length ? 'rgba(216,90,48,0.10)' : red ? 'rgba(239,68,68,0.05)' : undefined }}>
+                    {exts.map((e) => (
+                      <div key={e.id} title={`${e.title}${e.city ? ' — ' + e.city : ''}`} style={{ fontSize: '10px', fontWeight: 500, lineHeight: 1.2, marginBottom: '2px' }}>
+                        {e.title.replace(/^LIVE \| /, '')}{e.city ? <span style={{ color: 'var(--text-muted)' }}> · {e.city}</span> : null}
+                      </div>
+                    ))}
+                  </td>
+                );
+              })}
+              {weeks.labels.map((w) => <td key={w} style={{ background: '#EAF3DE' }} />)}
+              <td />
+            </tr>
+            {/* Estúdios 1-4 */}
+            {STUDIO_SLOTS.map((slot, si) => (
+              <tr key={slot}>
+                <td style={{ position: 'sticky', left: 0, background: 'var(--bg-surface)', zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                  <span style={{ color: 'var(--accent)', fontWeight: 700 }}>E{si + 1}</span> · Estúdio {si + 1}
+                </td>
+                {days.map((d) => {
+                  const k = dayKey(d);
+                  const dow = getDay(d);
+                  const red = dow === 0 || dow === 6 || isHoliday(d);
+                  const cellEvts = studioSlotGrid.get(slot)?.get(k) || [];
+                  const isOpen = openCell?.rowId === `studio:${slot}` && openCell?.key === k;
+                  return (
+                    <td
+                      key={k}
+                      onClick={() => canEdit && setOpenCell(isOpen ? null : { rowId: `studio:${slot}`, key: k })}
+                      style={{ position: 'relative', verticalAlign: 'top', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default', background: cellEvts.length ? 'rgba(99,102,241,0.10)' : red ? 'rgba(239,68,68,0.05)' : undefined, outline: isOpen ? '2px solid var(--accent)' : undefined }}
+                    >
+                      {cellEvts.map((e) => (
+                        <div key={e.id} title={e.title} style={{ fontSize: '10px', fontWeight: 500, lineHeight: 1.2, marginBottom: '2px' }}>
+                          {e.title.replace(/^LIVE \| /, '')}
+                        </div>
+                      ))}
+                      {isOpen && (
+                        <StudioPicker
+                          dayStudioEvents={studioEventsByDay.get(k) || []}
+                          slot={slot}
+                          onToggle={(e) => assignStudioSlot(e, slot)}
+                          onClose={() => setOpenCell(null)}
+                        />
+                      )}
+                    </td>
+                  );
+                })}
+                {weeks.labels.map((w) => <td key={w} style={{ background: '#EAF3DE' }} />)}
+                <td />
+              </tr>
+            ))}
+
             {groups.map((g) => (
               <FragmentGroup key={g.key}>
                 <tr>
@@ -364,11 +492,11 @@ export default function EscalaMensalPage() {
                       const cell = enrichedGrid.get(op.id)?.get(k) || [];
                       const note = notes.get(`${op.id}|${k}`);
                       const rest = isOperatorRestDay(op, d);
-                      const isOpen = openCell?.opId === op.id && openCell?.key === k;
+                      const isOpen = openCell?.rowId === op.id && openCell?.key === k;
                       return (
                         <td
                           key={k}
-                          onClick={() => canEdit && setOpenCell(isOpen ? null : { opId: op.id, key: k })}
+                          onClick={() => canEdit && setOpenCell(isOpen ? null : { rowId: op.id, key: k })}
                           title={rest ? 'Folga' : undefined}
                           style={{
                             position: 'relative', verticalAlign: 'top', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default',
@@ -376,18 +504,15 @@ export default function EscalaMensalPage() {
                             outline: isOpen ? '2px solid var(--primary)' : undefined,
                           }}
                         >
-                          {cell.map(({ evt, a, value, isReal }) => {
+                          {cell.map(({ evt, a }) => {
                             return (
-                              <div key={evt.id} style={{ marginBottom: '2px', lineHeight: 1.15 }}>
-                                <div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '58px' }} title={evt.title}>
-                                  {evt.studioName ? `${evt.studioName} · ` : ''}{evt.title.replace(/^LIVE \| /, '')}
+                              <div key={evt.id} style={{ marginBottom: '3px', lineHeight: 1.2 }}>
+                                <div style={{ fontSize: '10px', fontWeight: 500 }} title={evt.title}>
+                                  {evt.studioName ? <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{evt.studioName} · </span> : ''}{evt.title.replace(/^LIVE \| /, '')}
                                 </div>
                                 {(a.shiftTime || evt.date) && (
                                   <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{a.shiftTime || format(toDate(evt.date), 'HH:mm')}</div>
                                 )}
-                                <div style={{ fontSize: '10px', fontWeight: 600, color: value === 0 ? 'var(--text-muted)' : isReal ? 'var(--success)' : 'var(--text-secondary)' }}>
-                                  {value === 0 ? 'R$ 0' : `${isReal ? '' : '~'}R$ ${Math.round(value)}`}
-                                </div>
                               </div>
                             );
                           })}
@@ -514,6 +639,55 @@ function CellPicker({
           {note && <button className="btn btn-ghost btn-sm" style={{ fontSize: '11px', color: 'var(--error)' }} onClick={() => { setNoteInput(''); onSaveNote(''); }}>Limpar</button>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* Dropdown da célula de estúdio: leilões "de estúdio" do dia para definir no slot E1-E4. */
+function StudioPicker({
+  dayStudioEvents, slot, onToggle, onClose,
+}: {
+  dayStudioEvents: EventWithId[];
+  slot: string;
+  onToggle: (evt: EventWithId) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '230px',
+        background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: '8px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>Leilões de estúdio · {slot}</span>
+        <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} style={{ padding: '2px' }}><X size={13} /></button>
+      </div>
+      {dayStudioEvents.length === 0 ? (
+        <p style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '6px 0' }}>Nenhum leilão de estúdio neste dia.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '220px', overflowY: 'auto' }}>
+          {dayStudioEvents.map((evt) => {
+            const here = (evt.studioName || '') === slot;
+            const elsewhere = !!evt.studioName && !here;
+            return (
+              <label key={evt.id} style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11.5px', cursor: 'pointer', padding: '4px 6px', borderRadius: 'var(--radius-sm)', background: here ? 'var(--primary-light)' : 'var(--bg-surface-elevated)' }}>
+                <input type="checkbox" checked={here} onChange={() => onToggle(evt)} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    {evt.title.replace(/^LIVE \| /, '')}
+                  </span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                    {format(toDate(evt.date), 'HH:mm')}{elsewhere ? ` · já em ${evt.studioName}` : ''}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
