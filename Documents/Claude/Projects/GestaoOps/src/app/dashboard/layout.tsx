@@ -23,6 +23,7 @@ import {
   CalendarDays,
   Download,
   Bell,
+  LayoutGrid,
 } from 'lucide-react';
 
 interface NavItem {
@@ -38,6 +39,7 @@ const managementNav: NavItem[] = [
   { label: 'Eventos', href: '/dashboard/eventos', icon: Gavel },
   { label: 'Operadores', href: '/dashboard/operadores', icon: Users, roles: ['admin', 'ceo', 'administrativo', 'planejamento'] },
   { label: 'Escala', href: '/dashboard/escala', icon: Calendar },
+  { label: 'Modelo de Escala', href: '/dashboard/escala-mensal', icon: LayoutGrid },
   { label: 'Calendário', href: '/dashboard/calendario', icon: CalendarDays },
   { label: 'Financeiro', href: '/dashboard/financeiro', icon: DollarSign, roles: ['admin', 'ceo', 'financeiro', 'administrativo'] },
   { label: 'Exportação', href: '/dashboard/exportacao', icon: FileSpreadsheet, roles: ['admin', 'ceo', 'financeiro'] },
@@ -87,6 +89,7 @@ const ROUTE_GUARDS: { prefix: string; roles: SystemRole[] }[] = [
   { prefix: '/dashboard/operadores', roles: ['admin', 'ceo', 'administrativo', 'planejamento'] },
   { prefix: '/dashboard/eventos', roles: EVENT_ACCESS },
   { prefix: '/dashboard/leiloes', roles: EVENT_ACCESS },
+  { prefix: '/dashboard/escala-mensal', roles: EVENT_ACCESS },
   { prefix: '/dashboard/escala', roles: EVENT_ACCESS },
   { prefix: '/dashboard/downloader', roles: ['admin', 'ceo'] },
   { prefix: '/dashboard/notificacoes', roles: ['admin', 'ceo', 'comercial', 'administrativo'] },
