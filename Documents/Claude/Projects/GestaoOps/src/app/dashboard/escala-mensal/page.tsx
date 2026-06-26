@@ -8,7 +8,8 @@ import { GestaoEvent, EventAssignment } from '@/types/event';
 import { Operator, PaymentRules, isOperatorRestDay } from '@/types/operator';
 import { calculateOperatorPayment } from '@/lib/payment-engine';
 import { Holiday } from '@/types/payment';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, addMonths, subMonths } from 'date-fns';
+import { getScheduleNotes, setScheduleNote, deleteScheduleNote } from '@/services/scheduleNotes';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, addMonths, subMonths, startOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, X, Monitor, Users, MapPin } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
@@ -55,6 +56,7 @@ export default function EscalaMensalPage() {
   const [rulesN2, setRulesN2] = useState<PaymentRules | null>(null);
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({});
   const [mtValue, setMtValue] = useState(MT_DEFAULT_VALUE);
+  const [notes, setNotes] = useState<Map<string, string>>(new Map()); // `${opId}|${dayKey}` → rótulo manual
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -77,7 +79,7 @@ export default function EscalaMensalPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [evts, ops, rolesDoc, funcDoc, n1Doc, n2Doc, svcDoc, mtDoc, hols] = await Promise.all([
+      const [evts, ops, rolesDoc, funcDoc, n1Doc, n2Doc, svcDoc, mtDoc, hols, schedNotes] = await Promise.all([
         getEvents().catch(() => [] as EventWithId[]),
         getActiveOperators().catch(() => [] as OperatorWithId[]),
         getDocument<{ list: string[] }>('settings', 'roles').catch(() => null),
@@ -87,10 +89,12 @@ export default function EscalaMensalPage() {
         getDocument<{ catalog?: unknown }>('settings', 'services').catch(() => null),
         getDocument<{ value: number }>('settings', 'mt_studio').catch(() => null),
         getCollection<{ date: string }>('holidays').catch(() => []),
+        getScheduleNotes().catch(() => []),
       ]);
       setEvents(evts);
       setOperators(ops);
       setHolidays(hols);
+      setNotes(new Map(schedNotes.map((n) => [`${n.operatorId}|${n.date}`, n.label])));
       if (rolesDoc?.list?.length) { setRoles(rolesDoc.list); setCellRole((p) => p || rolesDoc.list[0]); }
       else setCellRole((p) => p || 'Diretor');
       if (funcDoc) setRulesFunc({ ...funcDoc, contractType: 'funcionario' });
@@ -113,6 +117,17 @@ export default function EscalaMensalPage() {
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const days = useMemo(() => eachDayOfInterval({ start: monthStart, end: monthEnd }), [monthStart, monthEnd]);
+
+  // Semanas (domingo→sábado) que tocam o mês — colunas SEMANA da planilha.
+  const weeks = useMemo(() => {
+    const idx = new Map<string, number>();
+    const labels: string[] = [];
+    for (const d of days) {
+      const wk = dayKey(startOfWeek(d, { weekStartsOn: 0 }));
+      if (!idx.has(wk)) { idx.set(wk, labels.length); labels.push(`S${labels.length + 1}`); }
+    }
+    return { labels, indexOf: (d: Date) => idx.get(dayKey(startOfWeek(d, { weekStartsOn: 0 }))) ?? 0 };
+  }, [days]);
 
   const isHoliday = useCallback((d: Date) => holidays.some((h) => h.date === dayKey(d)), [holidays]);
 
@@ -188,11 +203,13 @@ export default function EscalaMensalPage() {
   // Grade enriquecida (operador → dia → escalas com valor) + total do mês por
   // operador. Tudo computado UMA vez por mudança de dados — sem custo por render.
   type Cell = { evt: EventWithId; a: EventAssignment; value: number; isReal: boolean };
-  const { enrichedGrid, monthTotals } = useMemo(() => {
+  const { enrichedGrid, monthTotals, weekTotals } = useMemo(() => {
     const eg = new Map<string, Map<string, Cell[]>>();
     const totals = new Map<string, number>();
+    const wTotals = new Map<string, number[]>(); // opId → valor por índice de semana
     for (const e of events) {
-      const k = dayKey(toDate(e.date));
+      const d = toDate(e.date);
+      const k = dayKey(d);
       for (const a of e.assignments || []) {
         const op = operatorsById.get(a.operatorId);
         const { value, isReal } = computeValue(e, a, op, assignmentsByOperator.get(a.operatorId) || []);
@@ -200,12 +217,15 @@ export default function EscalaMensalPage() {
         const dm = eg.get(a.operatorId)!;
         if (!dm.has(k)) dm.set(k, []);
         dm.get(k)!.push({ evt: e, a, value, isReal });
-        const d = toDate(e.date);
-        if (d >= monthStart && d <= monthEnd) totals.set(a.operatorId, (totals.get(a.operatorId) || 0) + value);
+        if (d >= monthStart && d <= monthEnd) {
+          totals.set(a.operatorId, (totals.get(a.operatorId) || 0) + value);
+          if (!wTotals.has(a.operatorId)) wTotals.set(a.operatorId, new Array(weeks.labels.length).fill(0));
+          wTotals.get(a.operatorId)![weeks.indexOf(d)] += value;
+        }
       }
     }
-    return { enrichedGrid: eg, monthTotals: totals };
-  }, [events, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd]);
+    return { enrichedGrid: eg, monthTotals: totals, weekTotals: wTotals };
+  }, [events, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd, weeks]);
 
   // ----- mutations -----
   const toggleAssign = async (evt: EventWithId, op: OperatorWithId) => {
@@ -234,6 +254,23 @@ export default function EscalaMensalPage() {
       await loadData();
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Rótulo manual de atividade (viagem/montagem/folga…) numa célula.
+  const saveNote = async (opId: string, key: string, label: string) => {
+    const clean = label.trim();
+    setNotes((prev) => {
+      const next = new Map(prev);
+      if (clean) next.set(`${opId}|${key}`, clean); else next.delete(`${opId}|${key}`);
+      return next;
+    });
+    try {
+      if (clean) await setScheduleNote(opId, key, clean);
+      else await deleteScheduleNote(opId, key);
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao salvar atividade.', 'error');
     }
   };
 
@@ -303,6 +340,9 @@ export default function EscalaMensalPage() {
                   </th>
                 );
               })}
+              {weeks.labels.map((w) => (
+                <th key={w} style={{ textAlign: 'center', minWidth: '52px', background: '#EAF3DE', color: '#3B6D11' }}>{w}</th>
+              ))}
               <th style={{ textAlign: 'center', minWidth: '70px', background: 'var(--bg-surface-elevated)' }}>Mês</th>
             </tr>
           </thead>
@@ -310,7 +350,7 @@ export default function EscalaMensalPage() {
             {groups.map((g) => (
               <FragmentGroup key={g.key}>
                 <tr>
-                  <td colSpan={days.length + 2} style={{ background: 'var(--bg-surface-elevated)', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', padding: '5px 10px' }}>
+                  <td colSpan={days.length + 2 + weeks.labels.length} style={{ background: 'var(--bg-surface-elevated)', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', padding: '5px 10px' }}>
                     <g.icon size={12} style={{ verticalAlign: 'middle', marginRight: '6px' }} />{g.label}
                   </td>
                 </tr>
@@ -322,6 +362,7 @@ export default function EscalaMensalPage() {
                       const dow = getDay(d);
                       const red = dow === 0 || dow === 6 || isHoliday(d);
                       const cell = enrichedGrid.get(op.id)?.get(k) || [];
+                      const note = notes.get(`${op.id}|${k}`);
                       const rest = isOperatorRestDay(op, d);
                       const isOpen = openCell?.opId === op.id && openCell?.key === k;
                       return (
@@ -331,7 +372,7 @@ export default function EscalaMensalPage() {
                           title={rest ? 'Folga' : undefined}
                           style={{
                             position: 'relative', verticalAlign: 'top', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default',
-                            background: cell.length ? 'var(--primary-light)' : red ? 'rgba(239,68,68,0.05)' : rest ? 'rgba(239,68,68,0.08)' : undefined,
+                            background: cell.length ? 'var(--primary-light)' : note ? 'var(--bg-surface-elevated)' : red ? 'rgba(239,68,68,0.05)' : rest ? 'rgba(239,68,68,0.08)' : undefined,
                             outline: isOpen ? '2px solid var(--primary)' : undefined,
                           }}
                         >
@@ -350,16 +391,29 @@ export default function EscalaMensalPage() {
                               </div>
                             );
                           })}
-                          {rest && cell.length === 0 && <span style={{ fontSize: '9px', color: '#ef4444' }}>Folga</span>}
+                          {note && (
+                            <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '58px' }} title={note}>{note}</div>
+                          )}
+                          {rest && cell.length === 0 && !note && <span style={{ fontSize: '9px', color: '#ef4444' }}>Folga</span>}
 
                           {isOpen && (
                             <CellPicker
                               dayEvents={eventsByDay.get(k) || []}
                               operatorId={op.id}
+                              note={note || ''}
+                              onSaveNote={(label) => saveNote(op.id, k, label)}
                               onToggle={(evt) => toggleAssign(evt, op)}
                               onClose={() => setOpenCell(null)}
                             />
                           )}
+                        </td>
+                      );
+                    })}
+                    {weeks.labels.map((w, i) => {
+                      const wt = weekTotals.get(op.id)?.[i] || 0;
+                      return (
+                        <td key={w} style={{ textAlign: 'center', background: '#EAF3DE', color: wt > 0 ? '#3B6D11' : 'rgba(59,109,17,0.4)', fontWeight: 600 }}>
+                          {wt > 0 ? Math.round(wt) : '—'}
                         </td>
                       );
                     })}
@@ -373,7 +427,7 @@ export default function EscalaMensalPage() {
               </FragmentGroup>
             ))}
             {operators.length === 0 && (
-              <tr><td colSpan={days.length + 2} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>Nenhum operador ativo cadastrado.</td></tr>
+              <tr><td colSpan={days.length + 2 + weeks.labels.length} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>Nenhum operador ativo cadastrado.</td></tr>
             )}
           </tbody>
         </table>
@@ -390,15 +444,19 @@ function FragmentGroup({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/* Dropdown da célula: eventos do dia (externo + estúdio) para escalar/desescalar. */
+/* Dropdown da célula: eventos do dia (externo + estúdio) + rótulo manual de atividade. */
+const QUICK_ACTIVITIES = ['Viagem', 'Montagem', 'Folga', 'Bora'];
 function CellPicker({
-  dayEvents, operatorId, onToggle, onClose,
+  dayEvents, operatorId, note, onToggle, onSaveNote, onClose,
 }: {
   dayEvents: EventWithId[];
   operatorId: string;
+  note: string;
   onToggle: (evt: EventWithId) => void;
+  onSaveNote: (label: string) => void;
   onClose: () => void;
 }) {
+  const [noteInput, setNoteInput] = useState(note);
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -435,6 +493,27 @@ function CellPicker({
           })}
         </div>
       )}
+
+      <div style={{ borderTop: '1px solid var(--border)', marginTop: '8px', paddingTop: '8px' }}>
+        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>Atividade (sem evento)</span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', margin: '6px 0' }}>
+          {QUICK_ACTIVITIES.map((q) => (
+            <button key={q} className="btn btn-ghost btn-sm" style={{ fontSize: '10.5px', padding: '2px 8px' }} onClick={() => { setNoteInput(q); onSaveNote(q); }}>{q}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <input
+            className="input"
+            placeholder="ex: Montar para Kaue"
+            value={noteInput}
+            onChange={(e) => setNoteInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onSaveNote(noteInput); }}
+            style={{ flex: 1, fontSize: '11.5px', padding: '4px 8px' }}
+          />
+          <button className="btn btn-primary btn-sm" style={{ fontSize: '11px' }} onClick={() => onSaveNote(noteInput)}>OK</button>
+          {note && <button className="btn btn-ghost btn-sm" style={{ fontSize: '11px', color: 'var(--error)' }} onClick={() => { setNoteInput(''); onSaveNote(''); }}>Limpar</button>}
+        </div>
+      </div>
     </div>
   );
 }
