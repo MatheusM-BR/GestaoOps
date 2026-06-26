@@ -8,7 +8,7 @@ import {
   orderBy,
   Timestamp,
 } from '@/lib/firestore';
-import { GestaoEvent, EventService, EventAssignment, EventExpense, EventClosing } from '@/types/event';
+import { GestaoEvent, EventService, EventAssignment, EventExpense } from '@/types/event';
 
 const COLLECTION = 'events';
 
@@ -124,15 +124,4 @@ export async function removeExpense(eventId: string, expenseId: string): Promise
   if (!event) throw new Error('Event not found');
   const expenses = (event.expenses || []).filter((e: EventExpense) => e.id !== expenseId);
   await updateDocument(COLLECTION, eventId, { expenses } as Record<string, unknown>);
-}
-
-// Closing
-export async function closeEvent(eventId: string, closing: EventClosing): Promise<void> {
-  const event = await getEventById(eventId);
-  const revenueVal = event?.revenue || 0;
-  await updateDocument(COLLECTION, eventId, {
-    closing,
-    status: 'finalizado',
-    actualRevenue: revenueVal,
-  } as Record<string, unknown>);
 }

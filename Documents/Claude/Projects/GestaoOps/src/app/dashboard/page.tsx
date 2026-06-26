@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { getEvents } from '@/services/events';
 import { getOperators } from '@/services/operators';
-import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE } from '@/types/event';
+import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, eventStatusBadge, hasEventOccurred } from '@/types/event';
 import { Operator } from '@/types/operator';
 import { format, isToday, isTomorrow, isThisWeek, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -72,9 +72,7 @@ function EventListItem({ evt }: { evt: GestaoEvent & { id: string } }) {
           )}
         </div>
       </div>
-      <span className={`badge ${evt.status === 'escalado' || evt.status === 'finalizado' ? 'badge-success' : evt.status === 'pendente' ? 'badge-warning' : 'badge-info'}`}>
-        {evt.status}
-      </span>
+      {(() => { const s = eventStatusBadge(evt); return <span className={`badge ${s.cls}`}>{s.label}</span>; })()}
     </Link>
   );
 }
@@ -116,7 +114,7 @@ function AdminDashboard() {
   return (
     <div>
       <div className="grid-stats">
-        <StatCard label="Total Eventos" value={totalEvents} sub={`${finalized} finalizados`} icon={Gavel} />
+        <StatCard label="Total Eventos" value={totalEvents} sub={`${finalized} realizados`} icon={Gavel} />
         <StatCard label="Receita Total" value={`R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`} sub={`Líquido: R$ ${(totalRevenue - totalExpenses).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`} icon={DollarSign} color="var(--success)" />
         <StatCard label="Despesas" value={`R$ ${totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`} icon={TrendingUp} color="var(--warning)" />
         <StatCard label="Operadores Ativos" value={activeOps} sub={`de ${operators.length} total`} icon={Users} color="var(--accent)" />
@@ -182,7 +180,8 @@ function FinanceiroDashboard() {
   const totalRevenue = monthEvents.reduce((s, e) => s + (e.actualRevenue || e.revenue || 0), 0);
   const totalExpenses = monthEvents.reduce((s, e) => s + (e.expenses || []).reduce((x, ex) => x + (ex.amount || 0), 0), 0);
   const net = totalRevenue - totalExpenses;
-  const pending = events.filter((e) => e.status !== 'finalizado' && toDate(e.date) < now);
+  // "A escalar": eventos futuros que precisam de equipe e ainda não têm.
+  const pending = events.filter((e) => !hasEventOccurred(e) && (e.assignments || []).length === 0 && e.operationType !== 'retransmissao');
 
   return (
     <div>
@@ -194,7 +193,7 @@ function FinanceiroDashboard() {
         <StatCard label="Receita do Mês" value={`R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} icon={DollarSign} color="var(--success)" />
         <StatCard label="Despesas do Mês" value={`R$ ${totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} icon={TrendingUp} color="var(--warning)" />
         <StatCard label="Resultado Líquido" value={`R$ ${net.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} sub={net >= 0 ? 'Positivo ✓' : 'Negativo ⚠'} icon={BarChart2} color={net >= 0 ? 'var(--success)' : 'var(--error)'} />
-        <StatCard label="Eventos Pendentes" value={pending.length} sub="sem fechamento" icon={AlertTriangle} color="var(--warning)" />
+        <StatCard label="A Escalar" value={pending.length} sub="sem equipe" icon={AlertTriangle} color="var(--warning)" />
       </div>
 
       <div className="card" style={{ marginTop: '20px' }}>
@@ -220,7 +219,7 @@ function FinanceiroDashboard() {
                       <p style={{ fontSize: '13px', color: 'var(--success)', fontWeight: 600 }}>R$ {rev.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                       {exp > 0 && <p style={{ fontSize: '11px', color: 'var(--warning)' }}>- R$ {exp.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>}
                     </div>
-                    <span className={`badge ${evt.status === 'finalizado' ? 'badge-success' : 'badge-warning'}`}>{evt.status}</span>
+                    {(() => { const s = eventStatusBadge(evt); return <span className={`badge ${s.cls}`}>{s.label}</span>; })()}
                   </div>
                 </Link>
               );
@@ -379,7 +378,7 @@ function OperadorPainelDashboard() {
       </div>
 
       <div className="grid-stats">
-        <StatCard label="Meus Serviços" value={events.length} sub={`${events.filter((e) => e.status === 'finalizado').length} finalizados`} icon={ClipboardList} />
+        <StatCard label="Meus Serviços" value={events.length} sub={`${events.filter(hasEventOccurred).length} realizados`} icon={ClipboardList} />
         <StatCard label="Próximos" value={upcomingEvents.length} icon={Calendar} color="var(--accent)" />
         <StatCard label="Leilões Hoje" value={allTodayEvents.length} sub="na plataforma" icon={Gavel} color="var(--warning)" />
       </div>
@@ -401,7 +400,7 @@ function OperadorPainelDashboard() {
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{format(d, 'HH:mm')} • {evt.city || 'N/D'}</p>
                   </div>
                   {isAssigned && <span className="badge badge-primary" style={{ fontSize: '11px' }}>Escalado</span>}
-                  <span className={`badge ${evt.status === 'finalizado' ? 'badge-success' : 'badge-warning'}`}>{evt.status}</span>
+                  {(() => { const s = eventStatusBadge(evt); return <span className={`badge ${s.cls}`}>{s.label}</span>; })()}
                 </div>
               );
             })}
@@ -423,7 +422,6 @@ function OperadorPainelDashboard() {
         ) : (
           filteredEvents.map((evt) => {
             const d = toDate(evt.date);
-            const isPast = d < today;
             const myAssignment = (evt.assignments || []).find((a) => a.operatorId === operatorData?.id);
             const colleagues = (evt.assignments || []).filter((a) => a.operatorId !== operatorData?.id).map((a) => a.operatorName || 'Colega');
             return (
@@ -441,9 +439,7 @@ function OperadorPainelDashboard() {
                   </div>
                   {colleagues.length > 0 && <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Com: {colleagues.join(', ')}</p>}
                 </div>
-                <span className={`badge ${evt.status === 'finalizado' ? 'badge-success' : evt.status === 'em_andamento' ? 'badge-warning' : isPast ? 'badge-error' : 'badge-accent'}`}>
-                  {evt.status === 'finalizado' ? 'Finalizado' : evt.status === 'em_andamento' ? 'Em andamento' : isPast ? 'Pendente' : 'Agendado'}
-                </span>
+                {(() => { const s = eventStatusBadge(evt); return <span className={`badge ${s.cls}`}>{s.label}</span>; })()}
               </div>
             );
           })

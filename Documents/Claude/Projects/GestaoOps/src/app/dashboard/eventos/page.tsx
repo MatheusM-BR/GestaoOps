@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { fetchAllAuctions, fetchAuctionById, RemateAuction, hasValidToken, getToken, parseRobustDate } from '@/services/remateweb-api';
 import { getEvents, createEvent, deleteEvent, updateEvent } from '@/services/events';
-import { GestaoEvent, OperationType, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, EventService, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration } from '@/types/event';
+import { GestaoEvent, OperationType, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, EventService, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration, eventStatusBadge, hasEventOccurred } from '@/types/event';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { useCatalogs } from '@/lib/useCatalogs';
 import { format, parseISO } from 'date-fns';
@@ -150,7 +150,8 @@ export default function EventosPage() {
       !search ||
       e.title?.toLowerCase().includes(search.toLowerCase()) ||
       e.city?.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filterStatus === 'all' || e.status === filterStatus;
+    const displayStatus = hasEventOccurred(e) ? 'realizado' : ((e.assignments || []).length > 0 ? 'agendado' : 'pendente');
+    const matchStatus = filterStatus === 'all' || displayStatus === filterStatus;
     const matchType = filterType === 'all' || e.operationType === filterType;
     const matchChannel = filterChannel === 'all' || (e.channelName || '').trim() === filterChannel;
     const matchService = filterService === 'all' || (e.services || []).some((s) => s.serviceName === filterService);
@@ -579,10 +580,9 @@ export default function EventosPage() {
         </div>
         <select className="input" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ width: 'auto' }}>
           <option value="all">Todos os Status</option>
-          <option value="pendente">Pendente</option>
-          <option value="escalado">Escalado</option>
-          <option value="em_andamento">Em Andamento</option>
-          <option value="finalizado">Finalizado</option>
+          <option value="pendente">Pendente (sem equipe)</option>
+          <option value="agendado">Agendado</option>
+          <option value="realizado">Realizado</option>
         </select>
         <select className="input" value={filterType} onChange={(e) => setFilterType(e.target.value)} style={{ width: 'auto' }}>
           <option value="all">Todos os Tipos</option>
@@ -914,13 +914,7 @@ export default function EventosPage() {
                   ) : (
                     <span className="badge" style={{ opacity: 0.5, fontSize: '11px' }}>Sem tipo</span>
                   )}
-                  <span className={`badge ${
-                    evt.status === 'finalizado' ? 'badge-success' :
-                    evt.status === 'escalado' ? 'badge-accent' :
-                    evt.status === 'em_andamento' ? 'badge-warning' : 'badge-error'
-                  }`}>
-                    {evt.status}
-                  </span>
+                  {(() => { const s = eventStatusBadge(evt); return <span className={`badge ${s.cls}`}>{s.label}</span>; })()}
                   {canModify && (
                     <button
                       className="btn btn-ghost btn-icon btn-sm"

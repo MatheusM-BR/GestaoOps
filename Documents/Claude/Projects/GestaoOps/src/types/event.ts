@@ -94,6 +94,27 @@ export function emptyAuctionRegistration(): AuctionRegistration {
 }
 
 export type EventStatus = 'pendente' | 'escalado' | 'em_andamento' | 'finalizado';
+
+// Coerção robusta de data (Date | Firestore Timestamp | string | number).
+export function toEventDate(val: unknown): Date {
+  if (!val) return new Date(0);
+  if (val instanceof Date) return val;
+  if (typeof val === 'object' && val !== null && 'toDate' in val) return (val as { toDate: () => Date }).toDate();
+  if (typeof val === 'string' || typeof val === 'number') return new Date(val);
+  return new Date(0);
+}
+
+// Sem "fechamento": um evento foi "realizado" quando seu fim (endDate) já passou.
+export function hasEventOccurred(evt: { date?: unknown; endDate?: unknown }): boolean {
+  return toEventDate(evt.endDate || evt.date).getTime() < Date.now();
+}
+
+// Status de exibição derivado: Realizado (ocorreu) / Agendado (futuro c/ equipe) / Pendente (futuro s/ equipe).
+export function eventStatusBadge(evt: { date?: unknown; endDate?: unknown; assignments?: unknown[] }): { label: string; cls: string } {
+  if (hasEventOccurred(evt)) return { label: 'Realizado', cls: 'badge-success' };
+  const hasTeam = Array.isArray(evt.assignments) && evt.assignments.length > 0;
+  return hasTeam ? { label: 'Agendado', cls: 'badge-accent' } : { label: 'Pendente', cls: 'badge-warning' };
+}
 export type AssignmentStatus = 'confirmado' | 'pendente' | 'cancelado';
 export type ExpenseCategory = 'veiculo' | 'hospedagem' | 'alimentacao' | 'outros';
 

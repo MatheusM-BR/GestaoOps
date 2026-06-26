@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { getEventById, getEvents, updateEvent, addServiceToEvent, removeServiceFromEvent, assignOperator, removeAssignment, addExpense, removeExpense } from '@/services/events';
 import { getActiveOperators } from '@/services/operators';
 import { getDocument, getCollection } from '@/lib/firestore';
-import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense, ExpenseCategory, EventPlanning, PlanningVehicle, PlanningHotel, PlanningChecklist, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration } from '@/types/event';
+import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense, ExpenseCategory, EventPlanning, PlanningVehicle, PlanningHotel, PlanningChecklist, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration, eventStatusBadge } from '@/types/event';
 import { useCatalogs } from '@/lib/useCatalogs';
 import { Operator, isOperatorRestDay } from '@/types/operator';
 import { useAuth } from '@/lib/auth-context';
@@ -590,7 +590,7 @@ export default function EventoDetailPage() {
             </span>
           </div>
         </div>
-        <span className={`badge ${event.status === 'finalizado' ? 'badge-success' : event.status === 'escalado' ? 'badge-accent' : 'badge-warning'}`}>{event.status}</span>
+        {(() => { const s = eventStatusBadge(event); return <span className={`badge ${s.cls}`}>{s.label}</span>; })()}
       </div>
 
       {/* Quick Stats */}

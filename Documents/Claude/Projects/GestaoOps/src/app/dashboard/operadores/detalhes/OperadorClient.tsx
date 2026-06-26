@@ -8,7 +8,7 @@ import { getCollection } from '@/lib/firestore';
 import { computeFolgaBalance, getTripRoute } from '@/lib/folgas';
 import { Holiday } from '@/types/payment';
 import { Operator, ContractType, HourRange, OperatorRole, OperatorFunction, OPERATOR_FUNCTION_LABELS, WEEKDAY_LABELS } from '@/types/operator';
-import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE } from '@/types/event';
+import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, eventStatusBadge } from '@/types/event';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -614,9 +614,7 @@ export default function OperadorDetailPage() {
                           )}
                         </div>
                       </div>
-                      <span className={`badge ${evt.status === 'finalizado' ? 'badge-success' : evt.status === 'escalado' ? 'badge-accent' : 'badge-warning'}`}>
-                        {evt.status}
-                      </span>
+                      {(() => { const s = eventStatusBadge(evt); return <span className={`badge ${s.cls}`}>{s.label}</span>; })()}
                     </div>
                   );
                 })}
