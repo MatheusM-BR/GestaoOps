@@ -131,8 +131,27 @@ export default function EscalaMensalPage() {
     return rules;
   }, [rulesFunc, rulesN1, rulesN2]);
 
+  const operatorsById = useMemo(() => new Map(operators.map((o) => [o.id, o])), [operators]);
+
+  type PeriodAssignment = { eventId: string; date: Date; operationType: string | null };
+
+  // Escalas por operador (para cálculo de diária múltipla) — computado uma vez.
+  const assignmentsByOperator = useMemo(() => {
+    const m = new Map<string, PeriodAssignment[]>();
+    for (const e of events) {
+      const d = toDate(e.date);
+      for (const a of e.assignments || []) {
+        if (!m.has(a.operatorId)) m.set(a.operatorId, []);
+        m.get(a.operatorId)!.push({ eventId: e.id, date: d, operationType: e.operationType });
+      }
+    }
+    return m;
+  }, [events]);
+
   // Valor de uma escala: real se o evento foi encerrado, senão estimado (pela duração prevista).
-  const valueFor = useCallback((evt: EventWithId, a: EventAssignment, op?: OperatorWithId): { value: number; isReal: boolean } => {
+  const computeValue = useCallback((
+    evt: EventWithId, a: EventAssignment, op: OperatorWithId | undefined, opAssignments: PeriodAssignment[],
+  ): { value: number; isReal: boolean } => {
     const isReal = !!evt.closing;
     if (op && isMtOperator(op)) return { value: mtValue, isReal };
     const rules = resolveRules(op);
@@ -146,16 +165,13 @@ export default function EscalaMensalPage() {
         durationMinutes: 0, crossedMidnight: false, closedBy: '', closedAt: new Date(),
       },
     };
-    const allAssignmentsInPeriod = events
-      .filter((e) => (e.assignments || []).some((x) => x.operatorId === a.operatorId))
-      .map((e) => ({ eventId: e.id, date: toDate(e.date), operationType: e.operationType }));
     try {
-      const pay = calculateOperatorPayment(evtForCalc, a, rules, holidays as unknown as Holiday[], allAssignmentsInPeriod, rulesN2, fixedValues);
+      const pay = calculateOperatorPayment(evtForCalc, a, rules, holidays as unknown as Holiday[], opAssignments, rulesN2, fixedValues);
       return { value: pay.totalValue, isReal };
     } catch {
       return { value: 0, isReal };
     }
-  }, [events, holidays, fixedValues, mtValue, resolveRules, rulesN2]);
+  }, [holidays, fixedValues, mtValue, resolveRules, rulesN2]);
 
   // Eventos por dia (chave) — usado no dropdown da célula.
   const eventsByDay = useMemo(() => {
@@ -169,33 +185,27 @@ export default function EscalaMensalPage() {
     return m;
   }, [events]);
 
-  // Mapa operador → dia → escalas (eventos onde está escalado naquele dia).
-  const grid = useMemo(() => {
-    const m = new Map<string, Map<string, { evt: EventWithId; a: EventAssignment }[]>>();
+  // Grade enriquecida (operador → dia → escalas com valor) + total do mês por
+  // operador. Tudo computado UMA vez por mudança de dados — sem custo por render.
+  type Cell = { evt: EventWithId; a: EventAssignment; value: number; isReal: boolean };
+  const { enrichedGrid, monthTotals } = useMemo(() => {
+    const eg = new Map<string, Map<string, Cell[]>>();
+    const totals = new Map<string, number>();
     for (const e of events) {
       const k = dayKey(toDate(e.date));
       for (const a of e.assignments || []) {
-        if (!m.has(a.operatorId)) m.set(a.operatorId, new Map());
-        const dm = m.get(a.operatorId)!;
+        const op = operatorsById.get(a.operatorId);
+        const { value, isReal } = computeValue(e, a, op, assignmentsByOperator.get(a.operatorId) || []);
+        if (!eg.has(a.operatorId)) eg.set(a.operatorId, new Map());
+        const dm = eg.get(a.operatorId)!;
         if (!dm.has(k)) dm.set(k, []);
-        dm.get(k)!.push({ evt: e, a });
+        dm.get(k)!.push({ evt: e, a, value, isReal });
+        const d = toDate(e.date);
+        if (d >= monthStart && d <= monthEnd) totals.set(a.operatorId, (totals.get(a.operatorId) || 0) + value);
       }
     }
-    return m;
-  }, [events]);
-
-  const monthTotal = useCallback((opId: string) => {
-    const dm = grid.get(opId);
-    if (!dm) return 0;
-    const op = operators.find((o) => o.id === opId);
-    let total = 0;
-    for (const [k, list] of dm) {
-      const d = new Date(k);
-      if (d < monthStart || d > monthEnd) continue;
-      for (const { evt, a } of list) total += valueFor(evt, a, op).value;
-    }
-    return total;
-  }, [grid, operators, monthStart, monthEnd, valueFor]);
+    return { enrichedGrid: eg, monthTotals: totals };
+  }, [events, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd]);
 
   // ----- mutations -----
   const toggleAssign = async (evt: EventWithId, op: OperatorWithId) => {
@@ -311,7 +321,7 @@ export default function EscalaMensalPage() {
                       const k = dayKey(d);
                       const dow = getDay(d);
                       const red = dow === 0 || dow === 6 || isHoliday(d);
-                      const cell = grid.get(op.id)?.get(k) || [];
+                      const cell = enrichedGrid.get(op.id)?.get(k) || [];
                       const rest = isOperatorRestDay(op, d);
                       const isOpen = openCell?.opId === op.id && openCell?.key === k;
                       return (
@@ -325,8 +335,7 @@ export default function EscalaMensalPage() {
                             outline: isOpen ? '2px solid var(--primary)' : undefined,
                           }}
                         >
-                          {cell.map(({ evt, a }) => {
-                            const { value, isReal } = valueFor(evt, a, op);
+                          {cell.map(({ evt, a, value, isReal }) => {
                             return (
                               <div key={evt.id} style={{ marginBottom: '2px', lineHeight: 1.15 }}>
                                 <div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '58px' }} title={evt.title}>
@@ -354,9 +363,11 @@ export default function EscalaMensalPage() {
                         </td>
                       );
                     })}
-                    <td style={{ textAlign: 'center', fontWeight: 700, color: monthTotal(op.id) > 0 ? 'var(--primary)' : 'var(--text-muted)' }}>
-                      {monthTotal(op.id) > 0 ? `R$ ${Math.round(monthTotal(op.id))}` : '—'}
+                    {(() => { const mt = monthTotals.get(op.id) || 0; return (
+                    <td style={{ textAlign: 'center', fontWeight: 700, color: mt > 0 ? 'var(--primary)' : 'var(--text-muted)' }}>
+                      {mt > 0 ? `R$ ${Math.round(mt)}` : '—'}
                     </td>
+                    ); })()}
                   </tr>
                 ))}
               </FragmentGroup>
