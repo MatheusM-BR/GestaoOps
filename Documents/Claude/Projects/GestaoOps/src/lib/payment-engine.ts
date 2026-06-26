@@ -147,27 +147,13 @@ export function calculateOperatorPayment(
   isHoliday: boolean;
   ruleApplied: string;
 } {
-  if (!event.closing) {
-    return {
-      baseValue: 0,
-      travelValue: 0,
-      bonusValue: 0,
-      restDayExtra: 0,
-      serviceExtra: 0,
-      earnedExtraRestDay: false,
-      totalValue: 0,
-      durationMinutes: 0,
-      isWeekend: false,
-      isHoliday: false,
-      ruleApplied: 'Evento não finalizado',
-    };
-  }
-
   const safeRules = rules || { hourRanges: [], contractType: 'freelancer_n1' };
 
-  const startTime = toSafeDate(event.closing.actualStartTime);
-  const endTime = toSafeDate(event.closing.actualEndTime);
-  const eventDate = toSafeDate(event.date);
+  // Jornada com base nos horários do próprio evento (início/fim que atualizamos).
+  // O "fechamento" foi removido: a duração vem de date → endDate.
+  const startTime = toSafeDate(event.date);
+  const endTime = toSafeDate(event.endDate || event.date);
+  const eventDate = startTime;
 
   // 1. Calcular a duração trabalhada pelo operador
   const durationMinutes = calculateAssignmentDuration(startTime, endTime, assignment);

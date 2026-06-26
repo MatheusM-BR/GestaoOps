@@ -111,7 +111,7 @@ export default function MeusPagamentosPage() {
           rules = { ...rules, ...operator.paymentRules, hourRanges: rules.hourRanges };
         }
 
-        if (evt.closing && rules) {
+        if (rules) {
           try {
             // Somente eventos onde este operador está escalado (evita split errado de diária múltipla)
             const allMyEvents = events
@@ -129,7 +129,7 @@ export default function MeusPagamentosPage() {
               travelDays,
             });
           } catch {
-            computed.push({ evt, gross: 0, travelBonus: 0, nfDeduction: 0, net: 0, durationMinutes: evt.closing.durationMinutes || 0, isHalfShift: !!myAssignment.isHalfShift, travelDays });
+            computed.push({ evt, gross: 0, travelBonus: 0, nfDeduction: 0, net: 0, durationMinutes: 0, isHalfShift: !!myAssignment.isHalfShift, travelDays });
           }
         } else {
           computed.push({ evt, gross: 0, travelBonus: 0, nfDeduction: 0, net: 0, durationMinutes: 0, isHalfShift: !!myAssignment.isHalfShift, travelDays });
@@ -150,8 +150,10 @@ export default function MeusPagamentosPage() {
     );
   }
 
-  const finalized = payments.filter((p) => p.evt.status === 'finalizado');
-  const pending = payments.filter((p) => p.evt.status !== 'finalizado');
+  // Sem "fechamento": "realizado" = evento que já ocorreu (fim no passado).
+  const hasOccurred = (p: { evt: GestaoEvent }) => toDate(p.evt.endDate || p.evt.date).getTime() < Date.now();
+  const finalized = payments.filter(hasOccurred);
+  const pending = payments.filter((p) => !hasOccurred(p));
   const totalNet = finalized.reduce((s, p) => s + p.net, 0);
   const totalGross = finalized.reduce((s, p) => s + p.gross, 0);
   const totalTravel = finalized.reduce((s, p) => s + p.travelBonus, 0);
@@ -232,7 +234,7 @@ export default function MeusPagamentosPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', background: 'rgba(99,102,241,0.1)', borderRadius: 'var(--radius-md)', marginBottom: '20px', border: '1px solid rgba(99,102,241,0.25)' }}>
           <AlertCircle size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
           <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            <strong>{pending.length} evento(s)</strong> neste mês ainda não foram encerrados — valores pendentes de cálculo.
+            <strong>{pending.length} evento(s)</strong> ainda não ocorreram neste mês — valores previstos pelos horários agendados.
           </span>
         </div>
       )}
@@ -300,14 +302,14 @@ export default function MeusPagamentosPage() {
                         <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>—</span>
                       )}
                     </td>
-                    <td style={{ textAlign: 'right', fontWeight: 600, color: p.net > 0 ? 'var(--success)' : p.evt.status === 'finalizado' ? 'var(--warning)' : 'var(--text-muted)' }}>
-                      {p.evt.status === 'finalizado'
+                    <td style={{ textAlign: 'right', fontWeight: 600, color: p.net > 0 ? 'var(--success)' : hasOccurred(p) ? 'var(--warning)' : 'var(--text-muted)' }}>
+                      {hasOccurred(p)
                         ? `R$ ${p.net.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
                         : '–'}
                     </td>
                     <td>
-                      <span className={`badge ${p.evt.status === 'finalizado' ? 'badge-success' : p.evt.status === 'escalado' ? 'badge-accent' : 'badge-warning'}`}>
-                        {p.evt.status}
+                      <span className={`badge ${hasOccurred(p) ? 'badge-success' : 'badge-accent'}`}>
+                        {hasOccurred(p) ? 'Realizado' : 'Agendado'}
                       </span>
                     </td>
                   </tr>

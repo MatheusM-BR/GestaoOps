@@ -82,8 +82,7 @@ export default function FinanceiroPage() {
   const eventTeamCostMap: Record<string, number> = {};
 
   filteredEvents.forEach((evt) => {
-    if (evt.status !== 'finalizado' || !evt.closing) return;
-
+    // Sem "fechamento": conta pelos horários do evento (date→endDate) no período.
     let eventTeamTotal = 0;
 
     (evt.assignments || []).forEach((a) => {

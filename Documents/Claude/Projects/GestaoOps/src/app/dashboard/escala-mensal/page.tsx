@@ -169,25 +169,17 @@ export default function EscalaMensalPage() {
     return m;
   }, [events]);
 
-  // Valor de uma escala: real se o evento foi encerrado, senão estimado (pela duração prevista).
+  // Valor de uma escala pela duração do evento (date→endDate). "Real" = já
+  // ocorreu (endDate no passado); futuro fica como previsto. Sem fechamento.
   const computeValue = useCallback((
     evt: EventWithId, a: EventAssignment, op: OperatorWithId | undefined, opAssignments: PeriodAssignment[],
   ): { value: number; isReal: boolean } => {
-    const isReal = !!evt.closing;
+    const isReal = toDate(evt.endDate || evt.date).getTime() < Date.now();
     if (op && isMtOperator(op)) return { value: mtValue, isReal };
     const rules = resolveRules(op);
     if (!rules) return { value: 0, isReal };
-    const evtForCalc: EventWithId = evt.closing ? evt : {
-      ...evt,
-      closing: {
-        eventId: evt.id,
-        actualStartTime: toDate(evt.date),
-        actualEndTime: toDate(evt.endDate || evt.date),
-        durationMinutes: 0, crossedMidnight: false, closedBy: '', closedAt: new Date(),
-      },
-    };
     try {
-      const pay = calculateOperatorPayment(evtForCalc, a, rules, holidays as unknown as Holiday[], opAssignments, rulesN2, fixedValues);
+      const pay = calculateOperatorPayment(evt, a, rules, holidays as unknown as Holiday[], opAssignments, rulesN2, fixedValues);
       return { value: pay.totalValue, isReal };
     } catch {
       return { value: 0, isReal };

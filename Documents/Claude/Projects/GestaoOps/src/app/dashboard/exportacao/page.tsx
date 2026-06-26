@@ -46,12 +46,12 @@ export default function ExportacaoPage() {
 
   const filteredEvents = events.filter((e) => {
     const d = toDate(e.date);
-    return d >= new Date(periodStart) && d <= new Date(periodEnd + 'T23:59:59') && e.status === 'finalizado';
+    return d >= new Date(periodStart) && d <= new Date(periodEnd + 'T23:59:59');
   });
 
   const exportData = filteredEvents.map((evt) => {
-    const startDate = evt.closing ? toDate(evt.closing.actualStartTime) : toDate(evt.date);
-    const endDate = evt.closing ? toDate(evt.closing.actualEndTime) : toDate(evt.endDate);
+    const startDate = toDate(evt.date);
+    const endDate = toDate(evt.endDate);
     const services = evt.services || []; // exportação mostra só os 4 primeiros serviços (por enquanto)
     const realizador = (evt.assignments || []).find((a) => a.role === 'operador_principal')?.operatorName || '';
 
@@ -128,8 +128,8 @@ export default function ExportacaoPage() {
         {exportData.length === 0 && (
           <div className="empty-state" style={{ padding: '30px', marginTop: '16px' }}>
             <FileSpreadsheet size={40} style={{ opacity: 0.3, marginBottom: '8px' }} />
-            <h3>Nenhum evento finalizado</h3>
-            <p>Somente eventos com fechamento são exportados.</p>
+            <h3>Nenhum evento no período</h3>
+            <p>Ajuste o período para ver os eventos a exportar.</p>
           </div>
         )}
       </div>

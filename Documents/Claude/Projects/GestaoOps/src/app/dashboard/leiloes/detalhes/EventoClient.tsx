@@ -2,16 +2,16 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { getEventById, getEvents, updateEvent, addServiceToEvent, removeServiceFromEvent, assignOperator, removeAssignment, addExpense, removeExpense, closeEvent } from '@/services/events';
+import { getEventById, getEvents, updateEvent, addServiceToEvent, removeServiceFromEvent, assignOperator, removeAssignment, addExpense, removeExpense } from '@/services/events';
 import { getActiveOperators } from '@/services/operators';
 import { getDocument, getCollection } from '@/lib/firestore';
-import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense, EventClosing, ExpenseCategory, EventPlanning, PlanningVehicle, PlanningHotel, PlanningChecklist, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration } from '@/types/event';
+import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense, ExpenseCategory, EventPlanning, PlanningVehicle, PlanningHotel, PlanningChecklist, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration } from '@/types/event';
 import { useCatalogs } from '@/lib/useCatalogs';
 import { Operator, isOperatorRestDay } from '@/types/operator';
 import { useAuth } from '@/lib/auth-context';
 import { isInternalService, isInternalEvent, calculateOperatorPayment } from '@/lib/payment-engine';
 import CurrencyInput from '@/components/CurrencyInput';
-import { format, parseISO, differenceInMinutes, isSameDay } from 'date-fns';
+import { format, parseISO, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   ArrowLeft, Save, Settings, Users, DollarSign,
@@ -123,9 +123,6 @@ export default function EventoDetailPage() {
   const [expenseOperator, setExpenseOperator] = useState('');
 
   // Closing / Travel form
-  const [closingStart, setClosingStart] = useState('');
-  const [closingEnd, setClosingEnd] = useState('');
-  const [editingClosing, setEditingClosing] = useState(false);
   const [travelDeparture, setTravelDeparture] = useState('');
   const [travelDepartureTime, setTravelDepartureTime] = useState('');
   const [travelReturn, setTravelReturn] = useState('');
@@ -503,39 +500,6 @@ export default function EventoDetailPage() {
     }
   };
 
-  const handleClose = async () => {
-    if (!closingStart || !closingEnd) { showToast('Preencha os horários.', 'error'); return; }
-    const start = new Date(closingStart);
-    let end = new Date(closingEnd);
-    let crossedMidnight = false;
-    if (end <= start) { end = new Date(end.getTime() + 86400000); crossedMidnight = true; }
-    const duration = differenceInMinutes(end, start);
-    const isEdit = !!event?.closing;
-
-    try {
-      await closeEvent(id, {
-        eventId: id,
-        actualStartTime: start,
-        actualEndTime: end,
-        durationMinutes: duration,
-        crossedMidnight,
-        closedBy: 'admin',
-        closedAt: new Date(),
-      } as EventClosing);
-      setEditingClosing(false);
-      showToast(
-        isEdit
-          ? 'Fechamento corrigido. Valores financeiros recalculados.'
-          : 'Evento encerrado!',
-        'success',
-      );
-      await loadEvent();
-    } catch (err) {
-      console.error(err);
-      showToast('Erro ao salvar fechamento.', 'error');
-    }
-  };
-
   const extratoRef = useRef<HTMLDivElement>(null);
 
   const handleExportPDF = async () => {
@@ -657,7 +621,7 @@ export default function EventoDetailPage() {
           { key: 'equipe', label: 'Equipe', icon: Users, show: true },
           { key: 'planejamento', label: 'Planejamento', icon: Clipboard, show: needsPlanning },
           { key: 'despesas', label: 'Financeiro', icon: DollarSign, show: canViewFinance },
-          { key: 'fechamento', label: 'Fechamento', icon: CheckCircle, show: canEditClosing || canViewFinance },
+          { key: 'fechamento', label: 'Financeiro do Evento', icon: DollarSign, show: canEditClosing || canViewFinance },
         ] as { key: typeof activeTab; label: string; icon: React.ElementType; show: boolean }[])
           .map(({ key, label, icon: Icon, show }) => (
             show ? (
@@ -1280,7 +1244,7 @@ export default function EventoDetailPage() {
                           </span>
                         </td>
                         <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                          {p.details?.ruleApplied || (event.status === 'finalizado' ? 'Sem cálculo' : 'Aguardando encerramento')}
+                          {p.details?.ruleApplied || 'Sem cálculo'}
                         </td>
                         <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--warning)' }}>
                           R$ {p.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -1385,95 +1349,6 @@ export default function EventoDetailPage() {
                     <Hotel size={12} /> {event.planning.hotel.name}
                   </span>
                 )}
-              </div>
-            )}
-          </div>
-
-          {/* Section 2: Event Timing */}
-          <div className="card">
-            <h3 style={{ fontSize: '16px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Clock size={18} /> Encerramento do Evento
-            </h3>
-            {event.closing && !editingClosing ? (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', marginTop: '8px' }}>
-                  <CheckCircle size={18} style={{ color: 'var(--success)' }} />
-                  <span style={{ fontSize: '14px', color: 'var(--success)', fontWeight: 600 }}>Evento Encerrado</span>
-                  {canEditClosing && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ marginLeft: 'auto', gap: '5px' }}
-                      onClick={() => {
-                        // Pré-popula o formulário com os valores existentes
-                        const fmt = (d: unknown) => format(toDate(d), "yyyy-MM-dd'T'HH:mm");
-                        setClosingStart(fmt(event.closing!.actualStartTime));
-                        // Para fim: se cruzou meia-noite, subtrai 1 dia para exibir o horário original
-                        const endDate = toDate(event.closing!.actualEndTime);
-                        if (event.closing!.crossedMidnight) {
-                          endDate.setDate(endDate.getDate() - 1);
-                        }
-                        setClosingEnd(fmt(endDate));
-                        setEditingClosing(true);
-                      }}
-                    >
-                      <Save size={13} /> Corrigir Horários
-                    </button>
-                  )}
-                </div>
-                <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                  <div className="card-stat">
-                    <span className="stat-label">Início Real</span>
-                    <span className="stat-value" style={{ fontSize: '16px' }}>{format(toDate(event.closing.actualStartTime), 'dd/MM HH:mm')}</span>
-                  </div>
-                  <div className="card-stat">
-                    <span className="stat-label">Fim Real</span>
-                    <span className="stat-value" style={{ fontSize: '16px' }}>{format(toDate(event.closing.actualEndTime), 'dd/MM HH:mm')}</span>
-                  </div>
-                  <div className="card-stat">
-                    <span className="stat-label">Duração</span>
-                    <span className="stat-value" style={{ fontSize: '16px' }}>
-                      {Math.floor(event.closing.durationMinutes / 60)}h{(event.closing.durationMinutes % 60).toString().padStart(2, '0')}m
-                      {event.closing.crossedMidnight && <span style={{ fontSize: '12px', color: 'var(--warning)' }}> <Moon size={12} style={{ verticalAlign: 'middle' }} /></span>}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div>
-                {editingClosing && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', padding: '10px 14px', background: 'rgba(245,158,11,0.10)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245,158,11,0.3)' }}>
-                    <AlertTriangle size={15} style={{ color: 'var(--warning)', flexShrink: 0 }} />
-                    <span style={{ fontSize: '13px', color: 'var(--warning)', fontWeight: 500 }}>
-                      Editando fechamento — os valores financeiros serão recalculados automaticamente após salvar.
-                    </span>
-                  </div>
-                )}
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', marginTop: '4px' }}>
-                  {editingClosing ? 'Corrija os horários reais de início e fim.' : 'Registre os horários reais de início e fim do evento.'}
-                </p>
-                <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', maxWidth: '500px' }}>
-                  <div className="input-group">
-                    <label>Início Real</label>
-                    <input className="input" type="datetime-local" value={closingStart} onChange={(e) => setClosingStart(e.target.value)} />
-                  </div>
-                  <div className="input-group">
-                    <label>Fim Real</label>
-                    <input className="input" type="datetime-local" value={closingEnd} onChange={(e) => setClosingEnd(e.target.value)} />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                  <button className="btn btn-primary" onClick={handleClose} disabled={saving}>
-                    {saving
-                      ? <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} />
-                      : <><CheckCircle size={16} /> {editingClosing ? 'Salvar Correção' : 'Encerrar Evento'}</>
-                    }
-                  </button>
-                  {editingClosing && (
-                    <button className="btn btn-ghost" onClick={() => setEditingClosing(false)}>
-                      Cancelar
-                    </button>
-                  )}
-                </div>
               </div>
             )}
           </div>

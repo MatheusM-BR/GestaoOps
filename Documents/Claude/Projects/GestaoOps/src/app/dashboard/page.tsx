@@ -103,8 +103,9 @@ function AdminDashboard() {
   const now = new Date();
   const thisMonth = { start: startOfMonth(now), end: endOfMonth(now) };
   const totalEvents = events.length;
-  const finalized = events.filter((e) => e.status === 'finalizado').length;
-  const pendingClose = events.filter((e) => e.status !== 'finalizado' && toDate(e.date) < now).length;
+  // Sem "fechamento": "realizado" = evento que já ocorreu (fim no passado).
+  const finalized = events.filter((e) => toDate(e.endDate || e.date) < now).length;
+  const pendingClose = events.filter((e) => toDate(e.endDate || e.date) >= now).length;
   const totalRevenue = events.reduce((s, e) => s + (e.actualRevenue || e.revenue || 0), 0);
   const totalExpenses = events.reduce((s, e) => s + (e.expenses || []).reduce((x, ex) => x + (ex.amount || 0), 0), 0);
   const activeOps = operators.filter((o) => o.active).length;
@@ -518,7 +519,7 @@ function OperadorTransmissaoDashboard() {
     if (rules) {
       monthEvents.forEach((evt) => {
         const myAssignment = (evt.assignments || []).find((a) => a.operatorId === operatorData.id);
-        if (myAssignment && evt.closing) {
+        if (myAssignment) {
           try {
             const payment = calculateOperatorPayment(evt, myAssignment, rules, holidays, [], defaultRulesN2, fixedValues);
             estimatedEarnings += payment.totalValue;
