@@ -489,7 +489,8 @@ export default function EscalaMensalPage() {
                       const k = dayKey(d);
                       const dow = getDay(d);
                       const red = dow === 0 || dow === 6 || isHoliday(d);
-                      const cell = enrichedGrid.get(op.id)?.get(k) || [];
+                      // Escala de operadores: só eventos de estúdio (sem externas/retransmissões).
+                      const cell = (enrichedGrid.get(op.id)?.get(k) || []).filter((c) => isStudioEvent(c.evt));
                       const note = notes.get(`${op.id}|${k}`);
                       const rest = isOperatorRestDay(op, d);
                       const isOpen = openCell?.rowId === op.id && openCell?.key === k;
@@ -523,7 +524,7 @@ export default function EscalaMensalPage() {
 
                           {isOpen && (
                             <CellPicker
-                              dayEvents={eventsByDay.get(k) || []}
+                              dayEvents={(eventsByDay.get(k) || []).filter(isStudioEvent)}
                               operatorId={op.id}
                               note={note || ''}
                               onSaveNote={(label) => saveNote(op.id, k, label)}
@@ -559,7 +560,7 @@ export default function EscalaMensalPage() {
       </div>
 
       <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '10px' }}>
-        Valor <b>~R$</b> = estimado pela duração prevista · <b style={{ color: 'var(--success)' }}>R$</b> verde = real (evento encerrado) · MT = R$ {mtValue} fixo · colunas em vermelho = fim de semana/feriado.
+        Escala de operadores mostra apenas eventos de estúdio (externas ficam na seção do topo; retransmissões não escalam equipe) · totais Semana/Mês em R$ (estimado/real, MT = R$ {mtValue} fixo) · colunas em vermelho = fim de semana/feriado.
       </p>
     </div>
   );
