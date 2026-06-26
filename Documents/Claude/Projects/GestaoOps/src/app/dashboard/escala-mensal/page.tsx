@@ -179,8 +179,11 @@ export default function EscalaMensalPage() {
     if (op && isMtOperator(op)) return { value: mtValue, isReal };
     const rules = resolveRules(op);
     if (!rules) return { value: 0, isReal };
+    // Recalcula a folga ao vivo: escalar na folga do operador gera valor extra.
+    const onRestDay = op ? isOperatorRestDay(op, toDate(evt.date)) : !!a.onRestDay;
+    const assignment = a.onRestDay === onRestDay ? a : { ...a, onRestDay };
     try {
-      const pay = calculateOperatorPayment(evt, a, rules, holidays as unknown as Holiday[], opAssignments, rulesN2, fixedValues);
+      const pay = calculateOperatorPayment(evt, assignment, rules, holidays as unknown as Holiday[], opAssignments, rulesN2, fixedValues);
       return { value: pay.totalValue, isReal };
     } catch {
       return { value: 0, isReal };
@@ -426,14 +429,14 @@ export default function EscalaMensalPage() {
             </tr>
             {/* Externas */}
             <tr>
-              <td style={{ position: 'sticky', left: 0, background: 'var(--bg-surface)', zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap' }}>RW / Externas</td>
+              <td style={{ position: 'sticky', left: 0, background: 'var(--bg-surface)', zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap', textAlign: 'center' }}>RW / Externas</td>
               {days.map((d) => {
                 const k = dayKey(d);
                 const dow = getDay(d);
                 const red = dow === 0 || dow === 6 || isHoliday(d);
                 const exts = externalByDay.get(k) || [];
                 return (
-                  <td key={k} style={{ verticalAlign: 'top', padding: '3px 4px', background: exts.length ? 'rgba(216,90,48,0.10)' : red ? 'rgba(239,68,68,0.05)' : undefined }}>
+                  <td key={k} style={{ verticalAlign: 'middle', textAlign: 'center', padding: '3px 4px', background: exts.length ? 'rgba(216,90,48,0.10)' : red ? 'rgba(239,68,68,0.05)' : undefined }}>
                     {exts.map((e) => (
                       <div key={e.id} title={`${e.title}${e.city ? ' — ' + e.city : ''}`} style={{ fontSize: '10px', fontWeight: 500, lineHeight: 1.2, marginBottom: '2px' }}>
                         {e.title.replace(/^LIVE \| /, '')}{e.city ? <span style={{ color: 'var(--text-muted)' }}> · {e.city}</span> : null}
@@ -448,7 +451,7 @@ export default function EscalaMensalPage() {
             {/* Estúdios 1-4 */}
             {STUDIO_SLOTS.map((slot, si) => (
               <tr key={slot}>
-                <td style={{ position: 'sticky', left: 0, background: 'var(--bg-surface)', zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                <td style={{ position: 'sticky', left: 0, background: 'var(--bg-surface)', zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap', textAlign: 'center' }}>
                   <span style={{ color: 'var(--accent)', fontWeight: 700 }}>E{si + 1}</span> · Estúdio {si + 1}
                 </td>
                 {days.map((d) => {
@@ -461,7 +464,7 @@ export default function EscalaMensalPage() {
                     <td
                       key={k}
                       onClick={() => canEdit && setOpenCell(isOpen ? null : { rowId: `studio:${slot}`, key: k })}
-                      style={{ position: 'relative', verticalAlign: 'top', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default', background: cellEvts.length ? 'rgba(99,102,241,0.10)' : red ? 'rgba(239,68,68,0.05)' : undefined, outline: isOpen ? '2px solid var(--accent)' : undefined }}
+                      style={{ position: 'relative', verticalAlign: 'middle', textAlign: 'center', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default', background: cellEvts.length ? 'rgba(99,102,241,0.10)' : red ? 'rgba(239,68,68,0.05)' : undefined, outline: isOpen ? '2px solid var(--accent)' : undefined }}
                     >
                       {cellEvts.map((e) => (
                         <div key={e.id} title={e.title} style={{ fontSize: '10px', fontWeight: 500, lineHeight: 1.2, marginBottom: '2px' }}>
@@ -493,7 +496,7 @@ export default function EscalaMensalPage() {
                 </tr>
                 {g.ops.map((op) => (
                   <tr key={op.id}>
-                    <td style={{ position: 'sticky', left: 0, background: 'var(--bg-surface)', zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap' }}>{firstName(op.name)}</td>
+                    <td style={{ position: 'sticky', left: 0, background: 'var(--bg-surface)', zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap', textAlign: 'center' }}>{firstName(op.name)}</td>
                     {days.map((d) => {
                       const k = dayKey(d);
                       const dow = getDay(d);
@@ -509,8 +512,8 @@ export default function EscalaMensalPage() {
                           onClick={() => canEdit && setOpenCell(isOpen ? null : { rowId: op.id, key: k })}
                           title={rest ? 'Folga' : undefined}
                           style={{
-                            position: 'relative', verticalAlign: 'top', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default',
-                            background: cell.length ? 'var(--primary-light)' : note ? 'var(--bg-surface-elevated)' : red ? 'rgba(239,68,68,0.05)' : rest ? 'rgba(239,68,68,0.08)' : undefined,
+                            position: 'relative', verticalAlign: 'middle', textAlign: 'center', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default',
+                            background: cell.length ? (rest ? 'rgba(245,158,11,0.12)' : 'var(--primary-light)') : note ? 'var(--bg-surface-elevated)' : red ? 'rgba(239,68,68,0.05)' : rest ? 'rgba(239,68,68,0.08)' : undefined,
                             outline: isOpen ? '2px solid var(--primary)' : undefined,
                           }}
                         >
@@ -519,20 +522,23 @@ export default function EscalaMensalPage() {
                             const studioPending = isStudioEvent(evt) && !isReal;
                             return (
                               <div key={evt.id} style={{ marginBottom: '3px', lineHeight: 1.2 }}>
+                                {rest && (
+                                  <div style={{ fontSize: '8.5px', fontWeight: 700, color: '#C77F0A', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Folga</div>
+                                )}
                                 <div style={{ fontSize: '10px', fontWeight: 500 }} title={evt.title}>
                                   {evt.studioName ? <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{evt.studioName} · </span> : ''}{evt.title.replace(/^LIVE \| /, '')}
                                 </div>
                                 {(a.shiftTime || evt.date) && (
                                   <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{a.shiftTime || format(toDate(evt.date), 'HH:mm')}</div>
                                 )}
-                                <div style={{ fontSize: '10px', fontWeight: 700, color: value === 0 ? 'var(--text-muted)' : studioPending ? '#C77F0A' : isReal ? 'var(--success)' : 'var(--text-secondary)' }} title={studioPending ? 'Estúdio — valor provisório até a finalização' : undefined}>
+                                <div style={{ fontSize: '10px', fontWeight: 700, color: value === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : studioPending ? '#C77F0A' : isReal ? 'var(--success)' : 'var(--text-secondary)' }} title={rest ? 'Escalado em folga — gera valor extra' : studioPending ? 'Estúdio — valor provisório até a finalização' : undefined}>
                                   {value === 0 ? 'R$ 0' : `${isReal ? '' : '~'}R$ ${Math.round(value)}`}
                                 </div>
                               </div>
                             );
                           })}
                           {note && (
-                            <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '58px' }} title={note}>
+                            <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '70px', margin: '0 auto' }} title={note}>
                               {note}{note.trim().toLowerCase() === 'viagem' ? <span style={{ color: 'var(--accent)', fontStyle: 'normal', fontWeight: 600 }}> · R$ {VIAGEM_VALUE}</span> : null}
                             </div>
                           )}
