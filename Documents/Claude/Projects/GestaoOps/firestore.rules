@@ -51,6 +51,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isSignedIn();
     }
+    // Rótulos manuais de atividade na Modelo de Escala (operador × dia).
+    match /scheduleNotes/{doc} {
+      allow read, write: if isSignedIn();
+    }
+    // Rascunhos de notificações (envio à API RemateWeb é fase futura).
+    match /notifications/{doc} {
+      allow read, write: if isSignedIn();
+    }
 
     // Qualquer outra coleção: negada por padrão.
     match /{document=**} {
