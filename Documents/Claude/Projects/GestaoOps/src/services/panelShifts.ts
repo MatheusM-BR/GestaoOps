@@ -8,9 +8,16 @@ export interface PanelShift {
   date: string;        // chave do dia: yyyy-MM-dd
   operatorId: string;
   operatorName: string;
-  entryTime: string;   // HH:mm — hora inicial (que o operador entra)
-  exitTime?: string;   // HH:mm — hora final (se vazio, vai até o fim do último evento)
+  entryTime: string;   // HH:mm — hora inicial
+  exitTime?: string;   // HH:mm — hora final (se vazio, usa fim do último evento)
+  shiftType?: '1T' | '2T' | 'manual'; // undefined = legado/automático
 }
+
+// Horários padrão dos turnos de painel.
+export const TURNO_PRESET = {
+  '1T': { entry: '07:00', exit: '13:00', label: '1º Turno' },
+  '2T': { entry: '13:00', exit: '22:00', label: '2º Turno' },
+} as const;
 
 const COLLECTION = 'panelShifts';
 
@@ -22,8 +29,17 @@ export async function getPanelShifts(): Promise<(PanelShift & { id: string })[]>
   return getCollection<PanelShift>(COLLECTION);
 }
 
-export async function setPanelShift(date: string, operatorId: string, operatorName: string, entryTime: string, exitTime: string): Promise<void> {
-  return setDocument(COLLECTION, shiftId(date, operatorId), { date, operatorId, operatorName, entryTime, exitTime });
+export async function setPanelShift(
+  date: string,
+  operatorId: string,
+  operatorName: string,
+  entryTime: string,
+  exitTime: string,
+  shiftType?: '1T' | '2T' | 'manual',
+): Promise<void> {
+  return setDocument(COLLECTION, shiftId(date, operatorId), {
+    date, operatorId, operatorName, entryTime, exitTime, shiftType,
+  });
 }
 
 export async function deletePanelShift(date: string, operatorId: string): Promise<void> {
