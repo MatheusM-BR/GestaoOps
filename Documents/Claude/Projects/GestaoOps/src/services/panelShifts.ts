@@ -8,7 +8,8 @@ export interface PanelShift {
   date: string;        // chave do dia: yyyy-MM-dd
   operatorId: string;
   operatorName: string;
-  entryTime: string;   // HH:mm — hora que o operador entra
+  entryTime: string;   // HH:mm — hora inicial (que o operador entra)
+  exitTime?: string;   // HH:mm — hora final (se vazio, vai até o fim do último evento)
 }
 
 const COLLECTION = 'panelShifts';
@@ -21,8 +22,8 @@ export async function getPanelShifts(): Promise<(PanelShift & { id: string })[]>
   return getCollection<PanelShift>(COLLECTION);
 }
 
-export async function setPanelShift(date: string, operatorId: string, operatorName: string, entryTime: string): Promise<void> {
-  return setDocument(COLLECTION, shiftId(date, operatorId), { date, operatorId, operatorName, entryTime });
+export async function setPanelShift(date: string, operatorId: string, operatorName: string, entryTime: string, exitTime: string): Promise<void> {
+  return setDocument(COLLECTION, shiftId(date, operatorId), { date, operatorId, operatorName, entryTime, exitTime });
 }
 
 export async function deletePanelShift(date: string, operatorId: string): Promise<void> {

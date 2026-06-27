@@ -306,7 +306,7 @@ export default function EscalaMensalPage() {
   // Grade enriquecida (operador → dia → escalas com valor) + total do mês por
   // operador. Tudo computado UMA vez por mudança de dados — sem custo por render.
   type Cell = { evt: EventWithId; a: EventAssignment; value: number; isReal: boolean };
-  type PanelCov = { events: EventWithId[]; entry: string; durationMin: number; value: number; isReal: boolean };
+  type PanelCov = { events: EventWithId[]; entry: string; exit?: string; durationMin: number; value: number; isReal: boolean };
   const { enrichedGrid, monthTotals, weekTotals, panelCoverage } = useMemo(() => {
     const eg = new Map<string, Map<string, Cell[]>>();
     const totals = new Map<string, number>();
@@ -356,8 +356,18 @@ export default function EscalaMensalPage() {
         const ps = sorted[idx];
         const op = operatorsById.get(ps.operatorId);
         const entry = atTime(d, ps.entryTime);
-        const nextEntry = idx + 1 < sorted.length ? atTime(d, sorted[idx + 1].entryTime).getTime() : (lastEnd || entry.getTime());
-        const shiftEnd = Math.max(entry.getTime(), Math.min(nextEntry, lastEnd || entry.getTime()));
+        // Fim: hora final informada (cruza meia-noite se <= entrada); senão até a
+        // entrada do próximo operador, senão até o fim do último evento do dia.
+        let shiftEndMs: number;
+        if (ps.exitTime) {
+          let exit = atTime(d, ps.exitTime).getTime();
+          if (exit <= entry.getTime()) exit += 86400000;
+          shiftEndMs = exit;
+        } else {
+          const nextEntry = idx + 1 < sorted.length ? atTime(d, sorted[idx + 1].entryTime).getTime() : (lastEnd || entry.getTime());
+          shiftEndMs = Math.max(entry.getTime(), Math.min(nextEntry, lastEnd || entry.getTime()));
+        }
+        const shiftEnd = shiftEndMs;
         const covered = dayEvs.filter((e) => {
           const s = toDate(e.date).getTime(); const en = toDate(e.endDate || e.date).getTime();
           return en > entry.getTime() && s < shiftEnd;
@@ -367,7 +377,7 @@ export default function EscalaMensalPage() {
         const { value, durationMinutes } = calculatePanelShiftValue([{ start: entry, end: new Date(shiftEnd), assignment: {} }], rules, isSpecial, onRest, rulesN2);
         const isReal = lastEnd > 0 && lastEnd < Date.now();
         if (!panelCov.has(ps.operatorId)) panelCov.set(ps.operatorId, new Map());
-        panelCov.get(ps.operatorId)!.set(k, { events: covered, entry: ps.entryTime, durationMin: durationMinutes, value, isReal });
+        panelCov.get(ps.operatorId)!.set(k, { events: covered, entry: ps.entryTime, exit: ps.exitTime, durationMin: durationMinutes, value, isReal });
         addTotal(ps.operatorId, d, value);
       }
     }
@@ -413,15 +423,15 @@ export default function EscalaMensalPage() {
     }
   };
 
-  // Turno de painel: escala o operador no dia com hora de entrada (cobre tudo a partir daí).
-  const savePanelShift = async (op: OperatorWithId, k: string, entryTime: string) => {
+  // Turno de painel: escala o operador no dia com hora inicial e final.
+  const savePanelShift = async (op: OperatorWithId, k: string, entryTime: string, exitTime: string) => {
     setSaving(true);
     setPanelShifts((prev) => [
       ...prev.filter((p) => !(p.operatorId === op.id && p.date === k)),
-      { date: k, operatorId: op.id, operatorName: op.name, entryTime },
+      { date: k, operatorId: op.id, operatorName: op.name, entryTime, exitTime },
     ]);
     try {
-      await setPanelShift(k, op.id, op.name, entryTime);
+      await setPanelShift(k, op.id, op.name, entryTime, exitTime);
     } catch (err) {
       console.error(err);
       showToast('Erro ao salvar turno. Recarregando…', 'error');
@@ -650,7 +660,7 @@ export default function EscalaMensalPage() {
                           >
                             {pcov ? (
                               <>
-                                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>entra {pcov.entry}</div>
+                                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{pcov.entry}{pcov.exit ? `–${pcov.exit}` : ''}</div>
                                 <div style={{ fontSize: '9px', fontWeight: 500, color: 'var(--text-secondary)' }}>{pcov.events.length} leilão(ões)</div>
                                 <div style={{ fontSize: '10px', fontWeight: 700, color: pcov.value === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : pcov.isReal ? 'var(--success)' : 'var(--text-secondary)' }} title="Valor do turno — cobre os eventos do dia a partir da entrada (exceto Bora)">
                                   {pcov.value === 0 ? 'R$ 0' : `${pcov.isReal ? '' : '~'}R$ ${Math.round(pcov.value)}`} <span style={{ fontSize: '8px', fontWeight: 500, color: 'var(--text-muted)' }}>/turno</span>
@@ -660,9 +670,10 @@ export default function EscalaMensalPage() {
                             {isOpen && (
                               <PanelShiftPicker
                                 entry={pcov?.entry || ''}
+                                exit={pcov?.exit || ''}
                                 assigned={!!pcov}
                                 coveredCount={pcov?.events.length || 0}
-                                onSave={(t) => savePanelShift(op, k, t)}
+                                onSave={(entryT, exitT) => savePanelShift(op, k, entryT, exitT)}
                                 onRemove={() => removePanelShiftFor(op.id, k)}
                                 onClose={() => setOpenCell(null)}
                               />
@@ -935,21 +946,23 @@ function ExternalPicker({
 
 /* Box de turno do operador de painel: define a hora de entrada (cobre tudo a partir daí). */
 function PanelShiftPicker({
-  entry, assigned, coveredCount, onSave, onRemove, onClose,
+  entry, exit, assigned, coveredCount, onSave, onRemove, onClose,
 }: {
   entry: string;
+  exit: string;
   assigned: boolean;
   coveredCount: number;
-  onSave: (entryTime: string) => void;
+  onSave: (entryTime: string, exitTime: string) => void;
   onRemove: () => void;
   onClose: () => void;
 }) {
-  const [time, setTime] = useState(entry || '');
+  const [start, setStart] = useState(entry || '');
+  const [end, setEnd] = useState(exit || '');
   return (
     <div
       onClick={(e) => e.stopPropagation()}
       style={{
-        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '220px',
+        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '230px',
         background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
         boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: '10px',
       }}
@@ -959,14 +972,20 @@ function PanelShiftPicker({
         <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} style={{ padding: '2px' }}><X size={13} /></button>
       </div>
       <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-        Cobre todos os eventos do dia (estúdio/externo/retransmissão, exceto Bora) a partir da hora de entrada.
+        Cobre todos os eventos do dia (estúdio/externo/retransmissão, exceto Bora) dentro do horário.
       </p>
-      <div className="input-group" style={{ marginBottom: '10px' }}>
-        <label style={{ fontSize: '11px' }}>Hora de entrada</label>
-        <input className="input" type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+      <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
+        <div className="input-group">
+          <label style={{ fontSize: '11px' }}>Início</label>
+          <input className="input" type="time" value={start} onChange={(e) => setStart(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+        </div>
+        <div className="input-group">
+          <label style={{ fontSize: '11px' }}>Fim</label>
+          <input className="input" type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+        </div>
       </div>
       <div style={{ display: 'flex', gap: '6px' }}>
-        <button className="btn btn-primary btn-sm" style={{ flex: 1, fontSize: '11px' }} disabled={!time} onClick={() => onSave(time)}>{assigned ? 'Atualizar' : 'Escalar'}</button>
+        <button className="btn btn-primary btn-sm" style={{ flex: 1, fontSize: '11px' }} disabled={!start} onClick={() => onSave(start, end)}>{assigned ? 'Atualizar' : 'Escalar'}</button>
         {assigned && <button className="btn btn-ghost btn-sm" style={{ fontSize: '11px', color: 'var(--error)' }} onClick={onRemove}>Remover</button>}
       </div>
       {assigned && <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>Cobrindo {coveredCount} leilão(ões) neste turno.</p>}
