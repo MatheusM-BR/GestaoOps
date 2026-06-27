@@ -272,6 +272,7 @@ export default function EventosPage() {
       })));
       const ok = results.filter((r) => r.status === 'fulfilled').length;
       const fail = results.length - ok;
+      if (ok > 0 && profile) logAudit(profile.uid, profile.name, profile.role, 'IMPORT_API', 'event', `Importou ${ok} leilão(ões) da API RemateWeb`);
       setShowImportModal(false);
       setSelectedImports(new Set());
       if (fail > 0) showToast(`${ok} importado(s), ${fail} falharam.`, fail === results.length ? 'error' : 'info');
@@ -452,8 +453,10 @@ export default function EventosPage() {
 
       const updated = okIds.size;
       setSyncResult({ updated, skipped });
-      if (updated > 0) showToast(`${updated} evento(s) com horários (início/fim) atualizados da API.`);
-      else showToast(`Nenhuma alteração necessária (${skipped} já atualizados ou sem dados).`, 'info');
+      if (updated > 0) {
+        if (profile) logAudit(profile.uid, profile.name, profile.role, 'SYNC_TIMES', 'event', `Sincronizou horários de ${updated} evento(s) da API`);
+        showToast(`${updated} evento(s) com horários (início/fim) atualizados da API.`);
+      } else showToast(`Nenhuma alteração necessária (${skipped} já atualizados ou sem dados).`, 'info');
     } catch (err) {
       console.error('[sync]', err);
       showToast('Erro ao sincronizar com a API.', 'error');

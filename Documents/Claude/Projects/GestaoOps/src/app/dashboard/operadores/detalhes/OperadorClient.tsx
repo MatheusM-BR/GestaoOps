@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
+import { logAudit } from '@/services/auditLog';
 import { getOperatorById, updateOperator, savePaymentRules } from '@/services/operators';
 import { getEventsByOperator } from '@/services/events';
 import { getCollection } from '@/lib/firestore';
@@ -33,6 +35,7 @@ const contractLabels: Record<ContractType, string> = {
 export default function OperadorDetailPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { profile } = useAuth();
   const id = searchParams.get('id') as string;
 
   const [operator, setOperator] = useState<(Operator & { id: string }) | null>(null);
@@ -134,6 +137,7 @@ export default function OperadorDetailPage() {
     setSaving(true);
     try {
       await updateOperator(id, { name, email, phone, homeCity, contractType, role, functions, weeklyRestDay, restDays, active } as Partial<Operator>);
+      if (profile) logAudit(profile.uid, profile.name, profile.role, 'UPDATE_OPERATOR', 'operator', `Atualizou operador "${name}"`, id);
       showToast('Informações salvas com sucesso!');
     } catch (err) {
       console.error(err);

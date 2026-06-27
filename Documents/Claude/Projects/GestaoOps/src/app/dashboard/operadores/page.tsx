@@ -6,6 +6,8 @@ import { Operator, ContractType, OperatorRole } from '@/types/operator';
 import { maskPhone } from '@/lib/masks';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
+import { logAudit } from '@/services/auditLog';
 import {
   Plus, Search, UserCircle, Phone, Mail,
   MoreVertical, Trash2, Edit, Filter,
@@ -28,6 +30,7 @@ const avatarColors = [
 
 export default function OperadoresPage() {
   const router = useRouter();
+  const { profile } = useAuth();
   const [operators, setOperators] = useState<(Operator & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -82,6 +85,7 @@ export default function OperadoresPage() {
         active: true,
         password: formPassword,
       });
+      if (profile) logAudit(profile.uid, profile.name, profile.role, 'CREATE_OPERATOR', 'operator', `Criou operador "${formName}" (${formContract})`, operatorId);
       setShowCreateModal(false);
       resetForm();
       router.push(`/dashboard/operadores/detalhes?id=${operatorId}`);
@@ -100,7 +104,9 @@ export default function OperadoresPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Tem certeza que deseja excluir este operador?')) return;
     try {
+      const opToDelete = operators.find((o) => o.id === id);
       await deleteOperator(id);
+      if (profile) logAudit(profile.uid, profile.name, profile.role, 'DELETE_OPERATOR', 'operator', `Excluiu operador "${opToDelete?.name || id}"`, id);
       await loadOperators();
     } catch (err) {
       console.error(err);

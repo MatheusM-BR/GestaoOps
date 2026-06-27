@@ -9,6 +9,7 @@ import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense
 import { useCatalogs } from '@/lib/useCatalogs';
 import { Operator, isOperatorRestDay } from '@/types/operator';
 import { useAuth } from '@/lib/auth-context';
+import { logAudit } from '@/services/auditLog';
 import { isInternalService, isInternalEvent, calculateOperatorPayment } from '@/lib/payment-engine';
 import CurrencyInput from '@/components/CurrencyInput';
 import { format, parseISO, isSameDay } from 'date-fns';
@@ -341,6 +342,7 @@ export default function EventoDetailPage() {
         place: editPlace,
         auctionData: showAuctionFields ? auctionForm : null,
       } as Partial<GestaoEvent>);
+      if (profile) logAudit(profile.uid, profile.name, profile.role, 'UPDATE_EVENT', 'event', `Atualizou evento "${editTitle}"`, id);
       showToast('Evento atualizado!');
       await loadEvent();
     } catch (err) {
@@ -414,6 +416,8 @@ export default function EventoDetailPage() {
         assignment.shiftTime = shiftTime;
       }
       await assignOperator(id, assignment);
+      const opName = operators.find((o) => o.id === assignment.operatorId)?.name || assignment.operatorName;
+      if (profile) logAudit(profile.uid, profile.name, profile.role, 'ASSIGN_OPERATOR', 'event', `Escalou "${opName}" no evento "${event?.title}"`, id);
       setSelectedOperator('');
       setIsHalfShift(false);
       setShiftTime('18:00');
@@ -465,7 +469,9 @@ export default function EventoDetailPage() {
 
   const handleRemoveAssignment = async (operatorId: string) => {
     try {
+      const opName = operators.find((o) => o.id === operatorId)?.name || operatorId;
       await removeAssignment(id, operatorId);
+      if (profile) logAudit(profile.uid, profile.name, profile.role, 'REMOVE_ASSIGNMENT', 'event', `Removeu "${opName}" do evento "${event?.title}"`, id);
       await loadEvent();
     } catch (err) {
       console.error(err);
