@@ -12,7 +12,7 @@ import { getScheduleNotes, setScheduleNote, deleteScheduleNote } from '@/service
 import { getPanelShifts, setPanelShift, deletePanelShift, PanelShift } from '@/services/panelShifts';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, addMonths, subMonths, startOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, X, Monitor, Users, MapPin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Monitor, Users, MapPin, Clock } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 
 type EventWithId = GestaoEvent & { id: string };
@@ -306,7 +306,7 @@ export default function EscalaMensalPage() {
   // Grade enriquecida (operador → dia → escalas com valor) + total do mês por
   // operador. Tudo computado UMA vez por mudança de dados — sem custo por render.
   type Cell = { evt: EventWithId; a: EventAssignment; value: number; isReal: boolean };
-  type PanelCov = { events: EventWithId[]; entry: string; exit?: string; durationMin: number; value: number; isReal: boolean };
+  type PanelCov = { events: EventWithId[]; entry: string; exit?: string; windowLabel: string; manual: boolean; durationMin: number; value: number; isReal: boolean };
   const { enrichedGrid, monthTotals, weekTotals, panelCoverage } = useMemo(() => {
     const eg = new Map<string, Map<string, Cell[]>>();
     const totals = new Map<string, number>();
@@ -351,33 +351,28 @@ export default function EscalaMensalPage() {
       const dow = d.getDay();
       const isSpecial = dow === 0 || dow === 6 || isHoliday(d);
       const dayEvs = events.filter((e) => dayKey(toDate(e.date)) === k && !isBoraEvent(e));
+      const firstStart = dayEvs.reduce((mn, e) => Math.min(mn, toDate(e.date).getTime()), Infinity);
       const lastEnd = dayEvs.reduce((mx, e) => Math.max(mx, toDate(e.endDate || e.date).getTime()), 0);
-      for (let idx = 0; idx < sorted.length; idx++) {
-        const ps = sorted[idx];
+      const hasEvents = dayEvs.length > 0;
+      for (const ps of sorted) {
         const op = operatorsById.get(ps.operatorId);
-        const entry = atTime(d, ps.entryTime);
-        // Fim: hora final informada (cruza meia-noite se <= entrada); senão até a
-        // entrada do próximo operador, senão até o fim do último evento do dia.
-        let shiftEndMs: number;
-        if (ps.exitTime) {
-          let exit = atTime(d, ps.exitTime).getTime();
-          if (exit <= entry.getTime()) exit += 86400000;
-          shiftEndMs = exit;
-        } else {
-          const nextEntry = idx + 1 < sorted.length ? atTime(d, sorted[idx + 1].entryTime).getTime() : (lastEnd || entry.getTime());
-          shiftEndMs = Math.max(entry.getTime(), Math.min(nextEntry, lastEnd || entry.getTime()));
-        }
-        const shiftEnd = shiftEndMs;
+        // Padrão (auto): cobre do 1º início ao último fim dos leilões do dia.
+        // Quando informados, início/fim manuais sobrescrevem (e cruzam meia-noite).
+        const entryMs = ps.entryTime ? atTime(d, ps.entryTime).getTime() : (hasEvents ? firstStart : 0);
+        let exitMs = ps.exitTime ? atTime(d, ps.exitTime).getTime() : (hasEvents ? lastEnd : 0);
+        if (ps.exitTime && exitMs <= entryMs) exitMs += 86400000;
+        if (exitMs < entryMs) exitMs = entryMs;
         const covered = dayEvs.filter((e) => {
           const s = toDate(e.date).getTime(); const en = toDate(e.endDate || e.date).getTime();
-          return en > entry.getTime() && s < shiftEnd;
+          return en > entryMs && s < exitMs;
         });
         const rules = resolveRules(op);
         const onRest = op ? isOperatorRestDay(op, d) : false;
-        const { value, durationMinutes } = calculatePanelShiftValue([{ start: entry, end: new Date(shiftEnd), assignment: {} }], rules, isSpecial, onRest, rulesN2);
+        const { value, durationMinutes } = calculatePanelShiftValue([{ start: new Date(entryMs), end: new Date(exitMs), assignment: {} }], rules, isSpecial, onRest, rulesN2);
         const isReal = lastEnd > 0 && lastEnd < Date.now();
+        const windowLabel = entryMs && exitMs ? `${format(new Date(entryMs), 'HH:mm')}–${format(new Date(exitMs), 'HH:mm')}` : '';
         if (!panelCov.has(ps.operatorId)) panelCov.set(ps.operatorId, new Map());
-        panelCov.get(ps.operatorId)!.set(k, { events: covered, entry: ps.entryTime, exit: ps.exitTime, durationMin: durationMinutes, value, isReal });
+        panelCov.get(ps.operatorId)!.set(k, { events: covered, entry: ps.entryTime, exit: ps.exitTime, windowLabel, manual: !!(ps.entryTime || ps.exitTime), durationMin: durationMinutes, value, isReal });
         addTotal(ps.operatorId, d, value);
       }
     }
@@ -660,7 +655,9 @@ export default function EscalaMensalPage() {
                           >
                             {pcov ? (
                               <>
-                                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{pcov.entry}{pcov.exit ? `–${pcov.exit}` : ''}</div>
+                                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }} title={pcov.manual ? 'Horário definido manualmente' : 'Automático: horário dos leilões do dia'}>
+                                  {pcov.windowLabel || '—'}{!pcov.manual && pcov.windowLabel ? ' ·a' : ''}
+                                </div>
                                 <div style={{ fontSize: '9px', fontWeight: 500, color: 'var(--text-secondary)' }}>{pcov.events.length} leilão(ões)</div>
                                 <div style={{ fontSize: '10px', fontWeight: 700, color: pcov.value === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : pcov.isReal ? 'var(--success)' : 'var(--text-secondary)' }} title="Valor do turno — cobre os eventos do dia a partir da entrada (exceto Bora)">
                                   {pcov.value === 0 ? 'R$ 0' : `${pcov.isReal ? '' : '~'}R$ ${Math.round(pcov.value)}`} <span style={{ fontSize: '8px', fontWeight: 500, color: 'var(--text-muted)' }}>/turno</span>
@@ -956,13 +953,15 @@ function PanelShiftPicker({
   onRemove: () => void;
   onClose: () => void;
 }) {
+  const [showTime, setShowTime] = useState(!!(entry || exit)); // já vem expandido se tem horário manual
   const [start, setStart] = useState(entry || '');
   const [end, setEnd] = useState(exit || '');
+  const save = () => onSave(showTime ? start : '', showTime ? end : '');
   return (
     <div
       onClick={(e) => e.stopPropagation()}
       style={{
-        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '230px',
+        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '240px',
         background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
         boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: '10px',
       }}
@@ -972,23 +971,36 @@ function PanelShiftPicker({
         <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} style={{ padding: '2px' }}><X size={13} /></button>
       </div>
       <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-        Cobre todos os eventos do dia (estúdio/externo/retransmissão, exceto Bora) dentro do horário.
+        Por padrão cobre <strong>o horário dos leilões do dia</strong> (estúdio/externo/retransmissão, exceto Bora). Para trocar ou dividir, defina entrada/saída.
       </p>
-      <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
-        <div className="input-group">
-          <label style={{ fontSize: '11px' }}>Início</label>
-          <input className="input" type="time" value={start} onChange={(e) => setStart(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+
+      {!showTime ? (
+        <button className="btn btn-ghost btn-sm" style={{ width: '100%', fontSize: '11px', marginBottom: '8px', gap: '6px' }} onClick={() => setShowTime(true)}>
+          <Clock size={13} /> Definir horário (entrada/saída)
+        </button>
+      ) : (
+        <div style={{ marginBottom: '8px' }}>
+          <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div className="input-group">
+              <label style={{ fontSize: '11px' }}>Início</label>
+              <input className="input" type="time" value={start} onChange={(e) => setStart(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+            </div>
+            <div className="input-group">
+              <label style={{ fontSize: '11px' }}>Fim</label>
+              <input className="input" type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm" style={{ fontSize: '10px', marginTop: '4px', color: 'var(--text-muted)' }} onClick={() => { setStart(''); setEnd(''); setShowTime(false); }}>
+            ← Voltar ao automático
+          </button>
         </div>
-        <div className="input-group">
-          <label style={{ fontSize: '11px' }}>Fim</label>
-          <input className="input" type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
-        </div>
-      </div>
+      )}
+
       <div style={{ display: 'flex', gap: '6px' }}>
-        <button className="btn btn-primary btn-sm" style={{ flex: 1, fontSize: '11px' }} disabled={!start} onClick={() => onSave(start, end)}>{assigned ? 'Atualizar' : 'Escalar'}</button>
+        <button className="btn btn-primary btn-sm" style={{ flex: 1, fontSize: '11px' }} onClick={save}>{assigned ? 'Atualizar' : 'Escalar'}</button>
         {assigned && <button className="btn btn-ghost btn-sm" style={{ fontSize: '11px', color: 'var(--error)' }} onClick={onRemove}>Remover</button>}
       </div>
-      {assigned && <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>Cobrindo {coveredCount} leilão(ões) neste turno.</p>}
+      {assigned && <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>Cobrindo {coveredCount} leilão(ões){showTime ? '' : ' (horário automático)'}.</p>}
     </div>
   );
 }
