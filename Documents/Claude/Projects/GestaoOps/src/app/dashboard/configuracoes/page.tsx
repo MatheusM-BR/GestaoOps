@@ -1,7 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Settings, Key, Globe, Calendar as CalendarIcon, Save, Plus, Trash2, CheckCircle, Users, Receipt, Briefcase, Play, Radio } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Settings, Key, Globe, Calendar as CalendarIcon, Save, Plus, Trash2, CheckCircle, Users, Receipt, Briefcase, Play, Radio, ShieldCheck, Search } from 'lucide-react';
+import { getAuditLog, AuditEntry, AuditAction } from '@/services/auditLog';
+import { format, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { authenticate, setTokenManually } from '@/services/remateweb-api';
 import { addDocument, getCollection, deleteDocument, setDocument, getDocument } from '@/lib/firestore';
 import { useCatalogs } from '@/lib/useCatalogs';
@@ -20,7 +23,7 @@ interface Holiday {
 }
 
 export default function ConfiguracoesPage() {
-  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'pagamentos' | 'catalogos' | 'modelos' | 'fiscal' | 'api' | 'feriados'>('funcoes');
+  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'pagamentos' | 'catalogos' | 'modelos' | 'fiscal' | 'api' | 'feriados' | 'auditoria'>('funcoes');
 
   // Condições de pagamento padrão (dropdown no cadastro de leilão)
   const [payConds, setPayConds] = useState<string[]>([]);
@@ -383,6 +386,47 @@ export default function ConfiguracoesPage() {
     }
   };
 
+  // ==================== AUDITORIA ====================
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditLoaded, setAuditLoaded] = useState(false);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditUser, setAuditUser] = useState('');
+  const [auditAction, setAuditAction] = useState<AuditAction | ''>('');
+  const [auditFrom, setAuditFrom] = useState('');
+  const [auditTo, setAuditTo] = useState('');
+
+  const loadAudit = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const entries = await getAuditLog();
+      setAuditEntries(entries);
+      setAuditLoaded(true);
+    } catch { setAuditLoaded(true); }
+    finally { setAuditLoading(false); }
+  }, []);
+
+  const filteredAudit = useMemo(() => {
+    return auditEntries.filter((e) => {
+      if (auditUser && !e.userName.toLowerCase().includes(auditUser.toLowerCase())) return false;
+      if (auditAction && e.action !== auditAction) return false;
+      if (auditSearch && !e.detail.toLowerCase().includes(auditSearch.toLowerCase())) return false;
+      if (auditFrom || auditTo) {
+        const t = parseISO(e.timestamp);
+        if (auditFrom && t < startOfDay(parseISO(auditFrom))) return false;
+        if (auditTo && t > endOfDay(parseISO(auditTo))) return false;
+      }
+      return true;
+    });
+  }, [auditEntries, auditUser, auditAction, auditSearch, auditFrom, auditTo]);
+
+  const ACTION_LABELS: Record<string, string> = {
+    CREATE_EVENT: 'Criar evento', UPDATE_EVENT: 'Atualizar evento', DELETE_EVENT: 'Excluir evento',
+    CREATE_OPERATOR: 'Criar operador', UPDATE_OPERATOR: 'Atualizar operador', DELETE_OPERATOR: 'Excluir operador',
+    ASSIGN_OPERATOR: 'Escalar operador', REMOVE_ASSIGNMENT: 'Remover escala',
+    UPDATE_SETTINGS: 'Alterar configuração', IMPORT_API: 'Importar da API', SYNC_TIMES: 'Sincronizar horários',
+  };
+
   // Load data when tab switches
   useEffect(() => {
     if (activeTab === 'funcoes' && !rolesLoaded) loadRoles();
@@ -391,6 +435,7 @@ export default function ConfiguracoesPage() {
     if (activeTab === 'pagamentos' && !payCondsLoaded) loadPayConds();
     if (activeTab === 'modelos') loadDefaultRules(selectedContractType);
     if (activeTab === 'feriados' && !holidaysLoaded) loadHolidays();
+    if (activeTab === 'auditoria' && !auditLoaded) loadAudit();
     if (activeTab === 'fiscal' && !fiscalLoaded) {
       (async () => {
         try {
@@ -403,7 +448,7 @@ export default function ConfiguracoesPage() {
         } catch { setFiscalLoaded(true); }
       })();
     }
-  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, payCondsLoaded, selectedContractType, holidaysLoaded, fiscalLoaded, loadRoles, loadServices, loadStudios, loadPayConds, loadDefaultRules]);
+  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, payCondsLoaded, selectedContractType, holidaysLoaded, fiscalLoaded, auditLoaded, loadRoles, loadServices, loadStudios, loadPayConds, loadDefaultRules, loadAudit]);
 
   return (
     <div>
@@ -452,6 +497,10 @@ export default function ConfiguracoesPage() {
         <button className={`tab ${activeTab === 'feriados' ? 'active' : ''}`} onClick={() => setActiveTab('feriados')}>
           <CalendarIcon size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
           Feriados
+        </button>
+        <button className={`tab ${activeTab === 'auditoria' ? 'active' : ''}`} onClick={() => setActiveTab('auditoria')}>
+          <ShieldCheck size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+          Auditoria
         </button>
       </div>
 
@@ -944,6 +993,89 @@ export default function ConfiguracoesPage() {
               <Plus size={16} /> Adicionar
             </button>
           </div>
+        </div>
+      )}
+      {/* Aba de Auditoria */}
+      {activeTab === 'auditoria' && (
+        <div className="card animate-in">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              <h3 style={{ fontSize: '16px', marginBottom: '2px' }}>Log de Auditoria</h3>
+              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>Todas as ações dos usuários no sistema. Somente leitura.</p>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setAuditLoaded(false); loadAudit(); }}>
+              <Settings size={14} /> Atualizar
+            </button>
+          </div>
+
+          {/* Filtros */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '10px', marginBottom: '16px', padding: '14px', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)' }}>
+            <div className="input-group" style={{ margin: 0 }}>
+              <label style={{ fontSize: '11px' }}>Usuário</label>
+              <input className="input" placeholder="Nome do usuário" value={auditUser} onChange={(e) => setAuditUser(e.target.value)} style={{ fontSize: '13px', padding: '6px 10px' }} />
+            </div>
+            <div className="input-group" style={{ margin: 0 }}>
+              <label style={{ fontSize: '11px' }}>Ação</label>
+              <select className="input" value={auditAction} onChange={(e) => setAuditAction(e.target.value as AuditAction | '')} style={{ fontSize: '13px', padding: '6px 10px' }}>
+                <option value="">Todas</option>
+                {Object.entries(ACTION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div className="input-group" style={{ margin: 0 }}>
+              <label style={{ fontSize: '11px' }}>De</label>
+              <input className="input" type="date" value={auditFrom} onChange={(e) => setAuditFrom(e.target.value)} style={{ fontSize: '13px', padding: '6px 10px' }} />
+            </div>
+            <div className="input-group" style={{ margin: 0 }}>
+              <label style={{ fontSize: '11px' }}>Até</label>
+              <input className="input" type="date" value={auditTo} onChange={(e) => setAuditTo(e.target.value)} style={{ fontSize: '13px', padding: '6px 10px' }} />
+            </div>
+            <div className="input-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: '11px' }}>Busca livre</label>
+              <div style={{ position: 'relative' }}>
+                <Search size={13} style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input className="input" placeholder="Buscar na descrição..." value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} style={{ fontSize: '13px', padding: '6px 10px 6px 30px' }} />
+              </div>
+            </div>
+          </div>
+
+          {auditLoading ? (
+            <div className="skeleton" style={{ height: '200px' }} />
+          ) : filteredAudit.length === 0 ? (
+            <div className="empty-state" style={{ padding: '32px' }}><ShieldCheck size={32} style={{ opacity: 0.3 }} /><p style={{ fontSize: '13px' }}>Nenhum registro encontrado</p></div>
+          ) : (
+            <div className="table-container">
+              <table className="table" style={{ fontSize: '12.5px' }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '140px' }}>Data/hora</th>
+                    <th>Usuário</th>
+                    <th style={{ width: '160px' }}>Ação</th>
+                    <th>Descrição</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAudit.slice(0, 200).map((e, i) => (
+                    <tr key={i}>
+                      <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {format(parseISO(e.timestamp), "dd/MM/yy HH:mm", { locale: ptBR })}
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 500 }}>{e.userName}</span>
+                        <span className="badge" style={{ marginLeft: '6px', fontSize: '10px' }}>{e.role}</span>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>{ACTION_LABELS[e.action] || e.action}</span>
+                      </td>
+                      <td style={{ color: 'var(--text-secondary)' }}>{e.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filteredAudit.length > 200 && (
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '8px 12px' }}>Mostrando 200 de {filteredAudit.length} registros. Use os filtros para refinar.</p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

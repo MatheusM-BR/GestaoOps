@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { getEvents, assignOperator, removeAssignment, updateEvent } from '@/services/events';
-import { getActiveOperators } from '@/services/operators';
+import { getActiveOperators, getOperatorByUid } from '@/services/operators';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { GestaoEvent, EventAssignment } from '@/types/event';
 import { Operator, PaymentRules, isOperatorRestDay } from '@/types/operator';
@@ -70,7 +70,7 @@ function dateFromKey(k: string): Date {
 }
 
 export default function EscalaMensalPage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const [events, setEvents] = useState<EventWithId[]>([]);
   const [operators, setOperators] = useState<OperatorWithId[]>([]);
   const [holidays, setHolidays] = useState<{ date: string }[]>([]);
@@ -82,6 +82,7 @@ export default function EscalaMensalPage() {
   const [mtValue, setMtValue] = useState(MT_DEFAULT_VALUE);
   const [notes, setNotes] = useState<Map<string, string>>(new Map()); // `${opId}|${dayKey}` → rótulo manual
   const [panelShifts, setPanelShifts] = useState<PanelShift[]>([]); // turnos de painel (op cobre o dia a partir da entrada)
+  const [myOperatorId, setMyOperatorId] = useState<string | null>(null); // id do operador do usuário logado (para filtrar vista própria)
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -97,6 +98,13 @@ export default function EscalaMensalPage() {
     return r === 'admin' || r === 'ceo' || r === 'operador_painel' || r === 'administrativo' || r === 'gestor';
   }, [profile]);
 
+  // Visualização completa (todas as linhas): gestão + financeiro + admin.
+  // Demais papéis (operacao, tecnico, etc.) veem apenas a própria linha.
+  const canViewAll = useMemo(() => {
+    const r = profile?.role;
+    return r === 'admin' || r === 'ceo' || r === 'gestor' || r === 'administrativo' || r === 'financeiro' || r === 'comercial' || r === 'planejamento';
+  }, [profile]);
+
   const showToast = (message: string, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 2600);
@@ -104,6 +112,8 @@ export default function EscalaMensalPage() {
 
   const loadData = useCallback(async () => {
     try {
+      const myOp = user ? await getOperatorByUid(user.uid).catch(() => null) : null;
+      if (myOp) setMyOperatorId(myOp.id);
       const [evts, ops, rolesDoc, funcDoc, n1Doc, n2Doc, svcDoc, mtDoc, hols, schedNotes, pShifts] = await Promise.all([
         getEvents().catch(() => [] as EventWithId[]),
         getActiveOperators().catch(() => [] as OperatorWithId[]),
@@ -479,13 +489,20 @@ export default function EscalaMensalPage() {
       else if (op.contractType === 'funcionario') fixos.push(op);
       else free.push(op);
     }
-    return [
+    const all = [
       { key: 'fixos', label: 'Operadores Fixos', icon: Users, ops: fixos },
       { key: 'free', label: 'Freelancers', icon: Users, ops: free },
       { key: 'mt', label: `Estúdio MT — Cuiabá (R$ ${mtValue} fixo)`, icon: MapPin, ops: mt },
       { key: 'painel', label: 'Operação de painel', icon: Monitor, ops: painel },
     ].filter((g) => g.ops.length > 0);
-  }, [operators, mtValue]);
+
+    // Não-gestores veem somente a própria linha.
+    if (!canViewAll && myOperatorId) {
+      return all.map((g) => ({ ...g, ops: g.ops.filter((op) => op.id === myOperatorId) }))
+               .filter((g) => g.ops.length > 0);
+    }
+    return all;
+  }, [operators, mtValue, canViewAll, myOperatorId]);
 
   if (loading) return <div className="skeleton" style={{ height: '500px' }} />;
 

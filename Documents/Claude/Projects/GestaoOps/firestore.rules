@@ -67,6 +67,13 @@ service cloud.firestore {
     match /userDashboards/{uid} {
       allow read, write: if isSignedIn() && request.auth.uid == uid;
     }
+    // Log de auditoria — qualquer autenticado escreve; leitura por todos autenticados
+    // (a UI restringe a admin via route guard; regras de role em cloud functions são futuro).
+    match /auditLog/{doc} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn();
+      allow update, delete: if false;
+    }
 
     // Qualquer outra coleção: negada por padrão.
     match /{document=**} {

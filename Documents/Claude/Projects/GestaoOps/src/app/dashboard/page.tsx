@@ -128,7 +128,8 @@ interface WidgetDef {
 }
 
 const MGMT_CORE: SystemRole[] = ['admin', 'ceo', 'gestor', 'administrativo'];
-const FIN: SystemRole[] = ['admin', 'ceo', 'financeiro', 'administrativo'];
+// Financeiro na home: só admin/ceo/financeiro (sem administrativo, planejamento, etc.)
+const FIN: SystemRole[] = ['admin', 'ceo', 'financeiro'];
 const FIN_EXPORT: SystemRole[] = ['admin', 'ceo', 'financeiro'];
 const COM: SystemRole[] = ['admin', 'ceo', 'comercial'];
 const PLAN: SystemRole[] = ['admin', 'ceo', 'planejamento'];
@@ -525,15 +526,25 @@ const WIDGET_MAP = Object.fromEntries(WIDGETS.map((w) => [w.id, w]));
 
 const MGMT_PRESET = ['kpis-gestao', 'hoje', 'pendencias', 'proximos', 'mix-tipos', 'carga-operadores'];
 const ROLE_DEFAULTS: Partial<Record<SystemRole, string[]>> = {
-  admin: MGMT_PRESET,
-  ceo: MGMT_PRESET,
-  gestor: MGMT_PRESET,
-  administrativo: MGMT_PRESET,
-  financeiro: ['kpis-financeiro', 'eventos-mes', 'receita-operador', 'hoje'],
-  comercial: ['kpis-comercial', 'sem-faturamento', 'proximos', 'hoje'],
-  planejamento: ['kpis-planejamento', 'sem-planejamento', 'proximos', 'hoje'],
-  operador_painel: ['meus-stats', 'leiloes-hoje', 'minha-agenda'],
-  operacao: ['meus-stats', 'minha-agenda'],
+  // Alta gestão: visão 360°
+  admin:         MGMT_PRESET,
+  ceo:           MGMT_PRESET,
+  gestor:        MGMT_PRESET,
+  administrativo:['hoje', 'pendencias', 'proximos', 'mix-tipos'],
+  // Financeiro: dados $ + carga equipe
+  financeiro:    ['kpis-financeiro', 'receita-operador', 'carga-operadores', 'eventos-mes'],
+  // Comercial: foco em receita e próximos
+  comercial:     ['kpis-comercial', 'sem-faturamento', 'proximos', 'hoje'],
+  // Planejamento: externos e agenda
+  planejamento:  ['kpis-planejamento', 'sem-planejamento', 'proximos', 'hoje'],
+  // Operadores
+  operador_painel:       ['meus-stats', 'leiloes-hoje', 'minha-agenda'],
+  operador_transmissao:  ['meus-stats', 'minha-agenda'],
+  tecnico:               ['meus-stats', 'minha-agenda'],
+  operacao:              ['meus-stats', 'minha-agenda'],
+  freelancer_estudio:    ['meus-stats', 'minha-agenda'],
+  freelancer_externo:    ['meus-stats', 'minha-agenda'],
+  operador:              ['meus-stats', 'minha-agenda'],
 };
 
 function defaultWidgetsFor(role: SystemRole | undefined): string[] {
@@ -592,9 +603,10 @@ export default function DashboardPage() {
           : [];
         const events = isManagement ? allEvents : myEvents;
 
-        // Pagamentos por operador no mês (gestão).
+        // Pagamentos por operador no mês (somente admin/ceo/financeiro).
+        const canSeePay = role === 'admin' || role === 'ceo' || role === 'financeiro';
         const paymentsByOperator: Record<string, { name: string; total: number; count: number }> = {};
-        if (isManagement) {
+        if (isManagement && canSeePay) {
           for (const evt of monthEvts) {
             for (const a of evt.assignments || []) {
               const op = operators.find((o) => o.id === a.operatorId);

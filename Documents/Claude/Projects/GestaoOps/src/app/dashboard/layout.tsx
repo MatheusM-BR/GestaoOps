@@ -34,67 +34,79 @@ interface NavItem {
   roles?: SystemRole[]; // undefined = all management roles
 }
 
-// Full nav for admin/CEO
+// Full nav for management roles
 const managementNav: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Eventos', href: '/dashboard/eventos', icon: Gavel },
-  { label: 'Operadores', href: '/dashboard/operadores', icon: Users, roles: ['admin', 'ceo', 'administrativo', 'planejamento'] },
+  { label: 'Operadores', href: '/dashboard/operadores', icon: Users, roles: ['admin', 'ceo', 'gestor', 'administrativo', 'financeiro', 'planejamento'] },
   { label: 'Escala', href: '/dashboard/escala', icon: Calendar },
   { label: 'Modelo de Escala', href: '/dashboard/escala-mensal', icon: LayoutGrid },
   { label: 'Calendário', href: '/dashboard/calendario', icon: CalendarDays },
-  { label: 'Financeiro', href: '/dashboard/financeiro', icon: DollarSign, roles: ['admin', 'ceo', 'financeiro', 'administrativo'] },
-  { label: 'Exportação', href: '/dashboard/exportacao', icon: FileSpreadsheet, roles: ['admin', 'ceo', 'financeiro'] },
-  { label: 'Notificações', href: '/dashboard/notificacoes', icon: Bell, roles: ['admin', 'ceo', 'comercial', 'administrativo'] },
-  { label: 'Configurações', href: '/dashboard/configuracoes', icon: Settings, roles: ['admin', 'ceo'] },
-  { label: 'Downloader', href: '/dashboard/downloader', icon: Download, roles: ['admin', 'ceo'] },
+  { label: 'Financeiro', href: '/dashboard/financeiro', icon: DollarSign, roles: ['admin', 'ceo', 'financeiro'] },
+  { label: 'Exportação', href: '/dashboard/exportacao', icon: FileSpreadsheet, roles: ['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo'] },
+  { label: 'Notificações', href: '/dashboard/notificacoes', icon: Bell, roles: ['admin', 'ceo', 'gestor'] },
+  { label: 'Configurações', href: '/dashboard/configuracoes', icon: Settings, roles: ['admin'] },
+  { label: 'Downloader', href: '/dashboard/downloader', icon: Download },
 ];
 
+// Nav padrão para operadores de campo/freelancers.
 const operatorNav: NavItem[] = [
   { label: 'Meus Serviços', href: '/dashboard', icon: ClipboardList },
   { label: 'Minha Escala', href: '/dashboard/minha-escala', icon: Calendar },
   { label: 'Leilões da Empresa', href: '/dashboard/calendario', icon: CalendarDays },
   { label: 'Meus Pagamentos', href: '/dashboard/meus-pagamentos', icon: DollarSign },
   { label: 'Meu Perfil', href: '/dashboard/meu-perfil', icon: UserCircle },
+  { label: 'Downloader', href: '/dashboard/downloader', icon: Download },
 ];
 
-// Nav do Operador de Painel: configura eventos (sem financeiro/planejamento/operadores/config).
+// Nav do Operador de Painel: acessa eventos/escala/modelo/calendário, mas não financeiro/operadores/config.
 const painelHiddenHrefs = ['/dashboard/operadores', '/dashboard/financeiro', '/dashboard/exportacao', '/dashboard/configuracoes'];
+
+// Papéis de transmissão que recebem acesso a Notificações.
+const TRANSMISSAO_ROLES: SystemRole[] = ['operador_transmissao', 'tecnico'];
 
 function getNavForRole(role: SystemRole | undefined, isManagement: boolean, hasAccess: (roles: SystemRole[]) => boolean): NavItem[] {
   if (!role) return operatorNav;
   if (role === 'operador_painel') {
-    // Painel acessa eventos/escala/calendário (config), mas não financeiro/operadores/config.
-    return managementNav.filter((item) => !painelHiddenHrefs.includes(item.href));
+    const base = managementNav.filter((item) => !painelHiddenHrefs.includes(item.href));
+    // Painel recebe Notificações mesmo não sendo gestão.
+    const hasNotif = base.some((i) => i.href === '/dashboard/notificacoes');
+    return hasNotif ? base : [...base, { label: 'Notificações', href: '/dashboard/notificacoes', icon: Bell }];
+  }
+  if (TRANSMISSAO_ROLES.includes(role)) {
+    // Transmissão: nav de operador + Notificações.
+    return [...operatorNav, { label: 'Notificações', href: '/dashboard/notificacoes', icon: Bell }];
   }
   if (isOperatorRole(role)) {
     return operatorNav;
   }
-  // Management roles - filter nav items by allowed roles
+  // Roles de gestão: filtrar pelo campo roles de cada item.
   return managementNav.filter((item) => {
-    if (!item.roles) return true; // no restriction
+    if (!item.roles) return true;
     return hasAccess(item.roles);
   });
 }
 
-// Todos os papéis de gestão (usado nas guardas de rota de páginas "abertas a gestão")
 const ALL_MANAGEMENT: SystemRole[] = ['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo', 'planejamento'];
-// Acesso de configuração de eventos/escala (gestão + operador de painel).
+// Acesso a eventos/escala: gestão + operador de painel. Freelancers não acessam.
 const EVENT_ACCESS: SystemRole[] = [...ALL_MANAGEMENT, 'operador_painel'];
+// Modelo de Escala: gestão toda + operador de painel + operação. View filtrada por papel na página.
+const ESCALA_ACCESS: SystemRole[] = [...ALL_MANAGEMENT, 'operador_painel', 'operacao', 'operador_transmissao', 'tecnico'];
 
-// Páginas de gestão e quais papéis podem acessá-las (por prefixo de rota).
-// Rotas não listadas (/dashboard, /minha-escala, /meus-pagamentos, /meu-perfil, /calendario) são liberadas a todos.
+// Páginas de gestão e quais papéis podem acessá-las (prefixo de rota).
+// Rotas sem guard (/dashboard, /minha-escala, /meus-pagamentos, /meu-perfil, /calendario, /downloader) são liberadas a todos.
 const ROUTE_GUARDS: { prefix: string; roles: SystemRole[] }[] = [
-  { prefix: '/dashboard/configuracoes', roles: ['admin', 'ceo'] },
-  { prefix: '/dashboard/exportacao', roles: ['admin', 'ceo', 'financeiro'] },
-  { prefix: '/dashboard/financeiro', roles: ['admin', 'ceo', 'financeiro', 'administrativo'] },
-  { prefix: '/dashboard/operadores', roles: ['admin', 'ceo', 'administrativo', 'planejamento'] },
+  { prefix: '/dashboard/configuracoes', roles: ['admin'] },
+  { prefix: '/dashboard/exportacao', roles: ['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo'] },
+  { prefix: '/dashboard/financeiro', roles: ['admin', 'ceo', 'financeiro'] },
+  { prefix: '/dashboard/operadores', roles: ['admin', 'ceo', 'gestor', 'administrativo', 'financeiro', 'planejamento'] },
   { prefix: '/dashboard/eventos', roles: EVENT_ACCESS },
   { prefix: '/dashboard/leiloes', roles: EVENT_ACCESS },
-  { prefix: '/dashboard/escala-mensal', roles: EVENT_ACCESS },
+  { prefix: '/dashboard/escala-mensal', roles: ESCALA_ACCESS },
   { prefix: '/dashboard/escala', roles: EVENT_ACCESS },
-  { prefix: '/dashboard/downloader', roles: ['admin', 'ceo'] },
-  { prefix: '/dashboard/notificacoes', roles: ['admin', 'ceo', 'comercial', 'administrativo'] },
-  // /dashboard/calendario: aberto a todos (todos veem os leilões da empresa).
+  // /dashboard/downloader: sem guard (todos, incluindo freelancers).
+  { prefix: '/dashboard/notificacoes', roles: ['admin', 'ceo', 'gestor', 'operador_painel', 'operador_transmissao', 'tecnico'] },
+  // /dashboard/calendario: aberto a todos.
 ];
 
 function isPathAllowed(role: SystemRole | undefined, pathname: string): boolean {

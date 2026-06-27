@@ -16,6 +16,7 @@ import {
   Tv, ChevronRight, X, Calendar, PlusCircle, RotateCw
 } from 'lucide-react';
 import { isInternalService } from '@/lib/payment-engine';
+import { logAudit } from '@/services/auditLog';
 
 function toDate(val: unknown): Date {
   return parseRobustDate(val);
@@ -332,6 +333,7 @@ export default function EventosPage() {
         auctionData: showAuctionFields ? auctionForm : null,
       });
 
+      if (profile) logAudit(profile.uid, profile.name, profile.role, 'CREATE_EVENT', 'event', `Criou evento "${manualTitle}"`, docId);
       setShowManualModal(false);
       // Reset form
       setManualTitle('');
@@ -359,7 +361,9 @@ export default function EventosPage() {
     e.stopPropagation();
     if (!confirm('Excluir este evento e todo o seu histórico permanentemente?')) return;
     try {
+      const evtToDelete = events.find((ev) => ev.id === id);
       await deleteEvent(id);
+      if (profile) logAudit(profile.uid, profile.name, profile.role, 'DELETE_EVENT', 'event', `Excluiu evento "${evtToDelete?.title || id}"`, id);
       showToast('Evento excluído.');
       await loadData();
     } catch (err) {

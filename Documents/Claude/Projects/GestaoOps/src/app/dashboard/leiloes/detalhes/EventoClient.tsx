@@ -132,18 +132,22 @@ export default function EventoDetailPage() {
   const [fiscalFramework, setFiscalFramework] = useState('');
 
   // Access control permissions helpers
-  const isCEOOrAdmin = profile?.role === 'admin' || profile?.role === 'ceo';
-  const canEditInfo = isCEOOrAdmin || profile?.role === 'operador_painel' || profile?.role === 'comercial';
+  const isCEOOrAdmin = profile?.role === 'admin' || profile?.role === 'ceo' || profile?.role === 'gestor';
+  const canEditInfo = isCEOOrAdmin || profile?.role === 'operador_painel' || profile?.role === 'comercial' || profile?.role === 'administrativo';
   const isComercialOnly = profile?.role === 'comercial' && !isCEOOrAdmin;
-  const canEditBilling = isCEOOrAdmin || profile?.role === 'comercial';
+  // Receita/faturamento: somente admin/ceo/gestor/financeiro/comercial.
+  const canEditBilling = isCEOOrAdmin || profile?.role === 'financeiro' || profile?.role === 'comercial';
   const canEditServices = isCEOOrAdmin || profile?.role === 'operador_painel';
   const canEditEquipe = isCEOOrAdmin || profile?.role === 'operador_painel' || profile?.role === 'administrativo';
-  const canEditPlanning = isCEOOrAdmin || profile?.role === 'planejamento';
-  const canEditExpenses = isCEOOrAdmin || profile?.role === 'planejamento' || profile?.role === 'financeiro';
+  const canEditPlanning = isCEOOrAdmin || profile?.role === 'planejamento' || profile?.role === 'administrativo';
+  // Planejamento pode adicionar despesas de logística, mas não vê receita nem total financeiro.
+  const canEditExpenses = isCEOOrAdmin || profile?.role === 'financeiro';
   const canEditClosing = isCEOOrAdmin || profile?.role === 'operador_painel';
-  // Quem pode VER valores financeiros (receita/orçamento e total de despesas) do evento.
-  // Planejamento NÃO vê orçamento nem total de despesas (só define o planejamento logístico).
-  const canViewFinance = isCEOOrAdmin || profile?.role === 'financeiro' || profile?.role === 'comercial' || profile?.role === 'administrativo';
+  // Dados financeiros (receita, custo total, resultado): só admin/financeiro. Comercial vê só a receita.
+  const canViewFinance = isCEOOrAdmin || profile?.role === 'financeiro';
+  const canViewRevenue = canViewFinance || profile?.role === 'comercial'; // comercial vê receita, não despesas
+  // Planejamento pode ver e editar planejamento logístico (viagem/hotel), sem ver valores financeiros.
+  const canEditLogistics = canEditPlanning;
 
   const loadEvent = async () => {
     try {
@@ -593,19 +597,19 @@ export default function EventoDetailPage() {
         {(() => { const s = eventStatusBadge(event); return <span className={`badge ${s.cls}`}>{s.label}</span>; })()}
       </div>
 
-      {/* Quick Stats */}
+      {/* Quick Stats — receita só para quem pode ver, despesas só para financeiro/admin */}
       <div className="grid-stats" style={{ marginBottom: '24px' }}>
+        {canViewRevenue && (
+          <div className="card-stat">
+            <span className="stat-label">Receita Prevista</span>
+            <span className="stat-value" style={{ fontSize: '20px' }}>R$ {(event.revenue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </div>
+        )}
         {canViewFinance && (
-          <>
-            <div className="card-stat">
-              <span className="stat-label">Receita Prevista</span>
-              <span className="stat-value" style={{ fontSize: '20px' }}>R$ {(event.revenue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-            </div>
-            <div className="card-stat">
-              <span className="stat-label">Despesas</span>
-              <span className="stat-value" style={{ fontSize: '20px', color: 'var(--warning)' }}>R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-            </div>
-          </>
+          <div className="card-stat">
+            <span className="stat-label">Despesas</span>
+            <span className="stat-value" style={{ fontSize: '20px', color: 'var(--warning)' }}>R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </div>
         )}
         <div className="card-stat">
           <span className="stat-label">Equipe</span>
@@ -619,8 +623,8 @@ export default function EventoDetailPage() {
           { key: 'info', label: 'Informações', icon: Settings, show: true },
           { key: 'servicos', label: 'Serviços', icon: Settings, show: true },
           { key: 'equipe', label: 'Equipe', icon: Users, show: true },
-          { key: 'planejamento', label: 'Planejamento', icon: Clipboard, show: needsPlanning },
-          { key: 'despesas', label: 'Financeiro', icon: DollarSign, show: canViewFinance },
+          { key: 'planejamento', label: 'Planejamento', icon: Clipboard, show: needsPlanning && (canEditLogistics || canViewFinance) },
+          { key: 'despesas', label: 'Financeiro', icon: DollarSign, show: canViewFinance || canEditExpenses },
           { key: 'fechamento', label: 'Financeiro do Evento', icon: DollarSign, show: canEditClosing || canViewFinance },
         ] as { key: typeof activeTab; label: string; icon: React.ElementType; show: boolean }[])
           .map(({ key, label, icon: Icon, show }) => (
