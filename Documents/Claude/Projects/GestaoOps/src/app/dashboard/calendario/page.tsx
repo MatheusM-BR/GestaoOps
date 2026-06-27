@@ -26,6 +26,15 @@ function studioLabel(e: EventWithId): string {
   return e.city || 'Externo';
 }
 
+// Cor por tipo de evento no calendário:
+// externo = vermelho vinho · estúdio = azul · retransmissão = cinza · sem tipo = neutro.
+function eventColors(op?: GestaoEvent['operationType']): { main: string; light: string } {
+  if (op === 'externo') return { main: '#9B2D3B', light: 'rgba(155,45,59,0.16)' };
+  if (op === 'estudio') return { main: '#2F6FED', light: 'rgba(47,111,237,0.15)' };
+  if (op === 'retransmissao') return { main: '#7C7C78', light: 'rgba(124,124,120,0.16)' };
+  return { main: 'var(--text-muted)', light: 'var(--bg-surface-elevated)' };
+}
+
 export default function CalendarioPage() {
   const { profile } = useAuth();
   // Operadores comuns veem os leilões (tipo/estúdio) mas NÃO as pessoas escaladas.
@@ -111,10 +120,13 @@ export default function CalendarioPage() {
         {/* Legend */}
         <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', flexWrap: 'wrap' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
-            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'var(--accent)' }} /> Estúdio
+            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: eventColors('estudio').main }} /> Estúdio
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
-            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'var(--primary)' }} /> Externo
+            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: eventColors('externo').main }} /> Externo
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: eventColors('retransmissao').main }} /> Retransmissão
           </span>
           {canViewTeam && (
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -173,27 +185,25 @@ export default function CalendarioPage() {
                 {/* Dots indicator for mobile */}
                 {dayEvents.length > 0 && (
                   <div className="mobile-dots-indicator" style={{ justifyContent: 'center', gap: '4px', marginTop: '4px' }}>
-                    {dayEvents.slice(0, 3).map((evt) => {
-                      const isStudio = evt.operationType === 'estudio';
-                      return (
-                        <span
-                          key={evt.id}
-                          style={{
-                            width: '6px',
-                            height: '6px',
-                            borderRadius: '50%',
-                            background: isStudio ? 'var(--accent)' : 'var(--primary)',
-                            display: 'block',
-                          }}
-                        />
-                      );
-                    })}
+                    {dayEvents.slice(0, 3).map((evt) => (
+                      <span
+                        key={evt.id}
+                        style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          background: eventColors(evt.operationType).main,
+                          display: 'block',
+                        }}
+                      />
+                    ))}
                   </div>
                 )}
 
                 <div className="calendar-event-details" style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                   {dayEvents.map((evt) => {
                     const isStudio = evt.operationType === 'estudio';
+                    const col = eventColors(evt.operationType);
                     const start = toDate(evt.date);
                     const end = evt.endDate ? toDate(evt.endDate) : null;
                     const people = (evt.assignments || []).length;
@@ -208,11 +218,11 @@ export default function CalendarioPage() {
                         <div style={{
                           padding: '6px 7px',
                           borderRadius: 'var(--radius-sm)',
-                          background: isStudio ? 'var(--accent-light)' : 'var(--primary-light)',
-                          borderLeft: `3px solid ${isStudio ? 'var(--accent)' : 'var(--primary)'}`,
+                          background: col.light,
+                          borderLeft: `3px solid ${col.main}`,
                         }}>
                           {/* Time */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700, color: isStudio ? 'var(--accent)' : 'var(--primary)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700, color: col.main }}>
                             <Clock size={10} />
                             {format(start, 'HH:mm')}{end ? `–${format(end, 'HH:mm')}` : ''}
                           </div>
@@ -267,6 +277,7 @@ export default function CalendarioPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {getEventsForDay(selectedDay).map((evt) => {
                   const isStudio = evt.operationType === 'estudio';
+                  const col = eventColors(evt.operationType);
                   const start = toDate(evt.date);
                   const end = evt.endDate ? toDate(evt.endDate) : null;
                   const people = (evt.assignments || []).length;
@@ -280,10 +291,10 @@ export default function CalendarioPage() {
                         padding: '12px 14px',
                         borderRadius: 'var(--radius-md)',
                         background: 'var(--bg-surface-elevated)',
-                        borderLeft: `4px solid ${isStudio ? 'var(--accent)' : 'var(--primary)'}`,
+                        borderLeft: `4px solid ${col.main}`,
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: isStudio ? 'var(--accent)' : 'var(--primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: col.main, display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <Clock size={11} /> {format(start, 'HH:mm')}{end ? `–${format(end, 'HH:mm')}` : ''}
                           </span>
                           {canViewTeam && (
