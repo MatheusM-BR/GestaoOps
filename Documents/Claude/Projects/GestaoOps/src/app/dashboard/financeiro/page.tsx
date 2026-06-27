@@ -9,7 +9,8 @@ import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE } from '@/type
 import { Operator } from '@/types/operator';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { DollarSign, TrendingUp, TrendingDown, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Calendar, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 function toDate(val: unknown): Date {
   if (!val) return new Date();
@@ -78,7 +79,7 @@ export default function FinanceiroPage() {
   });
 
   // Calculate payments per operator and event team cost map
-  const operatorPayments: Record<string, { name: string; total: number; events: { title: string; value: number; rule: string }[] }> = {};
+  const operatorPayments: Record<string, { name: string; total: number; events: { title: string; value: number; rule: string; date: Date }[] }> = {};
   const eventTeamCostMap: Record<string, number> = {};
 
   filteredEvents.forEach((evt) => {
@@ -116,7 +117,7 @@ export default function FinanceiroPage() {
           operatorPayments[a.operatorId] = { name: op?.name || a.operatorName || 'Operador', total: 0, events: [] };
         }
         operatorPayments[a.operatorId].total += value;
-        operatorPayments[a.operatorId].events.push({ title: evt.title, value, rule });
+        operatorPayments[a.operatorId].events.push({ title: evt.title, value, rule, date: toDate(evt.date) });
 
         eventTeamTotal += value;
       } catch (err) {
@@ -142,6 +143,34 @@ export default function FinanceiroPage() {
   const totalExpenses = filteredEvents.reduce((s, e) => s + getEventExpenses(e), 0);
   const totalPayments = Object.values(operatorPayments).reduce((s, p) => s + p.total, 0);
   const netResult = totalRevenue - totalExpenses;
+
+  // Exporta o extrato por operador (cada leilão + valor) para Excel.
+  const handleExportOperators = () => {
+    const rows: Record<string, string | number>[] = [];
+    Object.values(operatorPayments)
+      .sort((a, b) => b.total - a.total)
+      .forEach((op) => {
+        op.events
+          .slice()
+          .sort((a, b) => a.date.getTime() - b.date.getTime())
+          .forEach((e) => {
+            rows.push({
+              Operador: op.name,
+              Data: format(e.date, 'dd/MM/yyyy'),
+              Leilão: e.title.replace(/^LIVE \| /, ''),
+              Regra: e.rule,
+              Valor: Number(e.value.toFixed(2)),
+            });
+          });
+        rows.push({ Operador: op.name, Data: '', Leilão: 'TOTAL', Regra: '', Valor: Number(op.total.toFixed(2)) });
+        rows.push({});
+      });
+    if (rows.length === 0) return;
+    const ws = XLSX.utils.json_to_sheet(rows, { header: ['Operador', 'Data', 'Leilão', 'Regra', 'Valor'] });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Por Operador');
+    XLSX.writeFile(wb, `Receitas_Operadores_${periodStart}_${periodEnd}.xlsx`);
+  };
 
   if (loading) return <div className="skeleton" style={{ height: '500px' }} />;
 
@@ -283,33 +312,44 @@ export default function FinanceiroPage() {
         </div>
       </div>
 
-      {/* Operator payments summary */}
+      {/* Receitas por operador (extrato individual) */}
       <div className="card">
-        <h3 style={{ fontSize: '16px', marginBottom: '16px' }}>Resumo por Operador</h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <h3 style={{ fontSize: '16px', margin: 0 }}>Receitas por Operador</h3>
+          {Object.keys(operatorPayments).length > 0 && (
+            <button className="btn btn-ghost btn-sm" onClick={handleExportOperators} style={{ gap: '6px' }}>
+              <Download size={15} /> Exportar Excel
+            </button>
+          )}
+        </div>
         {Object.keys(operatorPayments).length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Nenhum pagamento calculado. Finalize eventos com equipe escalada.</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Nenhum pagamento no período. Escale equipe nos eventos.</p>
         ) : (
-          <div className="table-container">
-            <table className="table">
-              <thead><tr><th>Operador</th><th className="hide-on-mobile">Eventos</th><th style={{ textAlign: 'right' }}>Total a Pagar</th></tr></thead>
-              <tbody>
-                {Object.entries(operatorPayments).map(([opId, data]) => (
-                  <tr key={opId}>
-                    <td style={{ fontWeight: 500 }}>{data.name}</td>
-                    <td className="hide-on-mobile">
-                      {data.events.map((e, i) => (
-                        <div key={i} style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {e.title} — {e.rule} — <span style={{ color: 'var(--success)' }}>R$ {e.value.toLocaleString('pt-BR')}</span>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+            {Object.entries(operatorPayments)
+              .sort((a, b) => b[1].total - a[1].total)
+              .map(([opId, data]) => (
+                <div key={opId} style={{ border: '0.5px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'var(--bg-surface-elevated)' }}>
+                    <span style={{ fontWeight: 600, fontSize: '14px' }}>{data.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: '15px', color: 'var(--success)' }}>R$ {data.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {data.events
+                      .slice()
+                      .sort((a, b) => a.date.getTime() - b.date.getTime())
+                      .map((e, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', padding: '7px 12px', borderTop: '0.5px solid var(--border)', fontSize: '12.5px' }}>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '11px', marginRight: '6px' }}>{format(e.date, 'dd/MM')}</span>
+                            <span title={e.rule}>{e.title.replace(/^LIVE \| /, '')}</span>
+                          </span>
+                          <span style={{ fontWeight: 600, color: 'var(--success)', whiteSpace: 'nowrap' }}>R$ {e.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                         </div>
                       ))}
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, fontSize: '16px', color: 'var(--success)' }}>
-                      R$ {data.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                  </div>
+                </div>
+              ))}
           </div>
         )}
       </div>

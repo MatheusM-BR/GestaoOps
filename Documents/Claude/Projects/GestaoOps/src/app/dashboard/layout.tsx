@@ -24,6 +24,7 @@ import {
   Download,
   Bell,
   LayoutGrid,
+  PanelLeft,
 } from 'lucide-react';
 
 interface NavItem {
@@ -114,6 +115,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false); // sidebar recolhida (só ícones) no desktop
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
@@ -124,6 +126,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace('/login');
     }
   }, [isAuthenticated, loading, router]);
+
+  // Recolher/expandir a sidebar — persiste a preferência.
+  useEffect(() => {
+    setCollapsed(localStorage.getItem('sidebar_collapsed') === '1');
+  }, []);
+  const toggleCollapsed = () => setCollapsed((c) => {
+    const next = !c;
+    try { localStorage.setItem('sidebar_collapsed', next ? '1' : '0'); } catch {}
+    return next;
+  });
 
   // Guarda de rota por papel: bloqueia acesso direto (URL) a páginas não permitidas.
   useEffect(() => {
@@ -236,7 +248,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const initials = (profile?.name || 'U').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${collapsed ? 'collapsed' : ''}`}>
       {/* Sidebar Overlay Mobile */}
       {sidebarOpen && (
         <div
@@ -275,23 +287,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 href={item.href}
                 className={`nav-item ${isActive ? 'active' : ''}`}
                 onClick={() => setSidebarOpen(false)}
+                title={item.label}
               >
                 <Icon size={20} className="nav-icon" />
-                {item.label}
+                <span className="nav-label">{item.label}</span>
               </Link>
             );
           })}
         </nav>
 
         <div className="sidebar-footer">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+          <div className="sidebar-user" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
             <div
               className="avatar"
               style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }}
             >
               {initials}
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="nav-label" style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {profile?.name || 'Usuário'}
               </p>
@@ -300,9 +313,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </p>
             </div>
           </div>
-          <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={handleSignOut}>
+          <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={handleSignOut} title="Sair">
             <LogOut size={16} />
-            Sair
+            <span className="nav-label">Sair</span>
           </button>
         </div>
       </aside>
@@ -313,6 +326,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <button className="mobile-menu-btn" onClick={() => setSidebarOpen(true)}>
               <Menu size={22} />
+            </button>
+            <button className="sidebar-collapse-btn" onClick={toggleCollapsed} title={collapsed ? 'Expandir menu' : 'Recolher menu'} aria-label="Recolher menu">
+              <PanelLeft size={20} />
             </button>
             <h1 className="topbar-title">{pageTitle}</h1>
           </div>

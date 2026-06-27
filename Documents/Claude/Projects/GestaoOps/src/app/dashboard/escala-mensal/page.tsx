@@ -469,16 +469,19 @@ export default function EscalaMensalPage() {
 
   // Agrupa operadores em seções (igual à planilha).
   const groups = useMemo(() => {
-    const estudio: OperatorWithId[] = [];
+    const fixos: OperatorWithId[] = [];   // CLT (funcionário)
+    const free: OperatorWithId[] = [];    // freelancers
     const mt: OperatorWithId[] = [];
     const painel: OperatorWithId[] = [];
     for (const op of operators) {
       if (isPanelOperator(op)) painel.push(op);
       else if (isMtOperator(op)) mt.push(op);
-      else estudio.push(op);
+      else if (op.contractType === 'funcionario') fixos.push(op);
+      else free.push(op);
     }
     return [
-      { key: 'estudio', label: 'Programas de estúdio', icon: Users, ops: estudio },
+      { key: 'fixos', label: 'Operadores Fixos', icon: Users, ops: fixos },
+      { key: 'free', label: 'Freelancers', icon: Users, ops: free },
       { key: 'mt', label: `Estúdio MT — Cuiabá (R$ ${mtValue} fixo)`, icon: MapPin, ops: mt },
       { key: 'painel', label: 'Operação de painel', icon: Monitor, ops: painel },
     ].filter((g) => g.ops.length > 0);
