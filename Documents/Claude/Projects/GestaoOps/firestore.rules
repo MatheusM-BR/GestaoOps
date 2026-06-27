@@ -60,10 +60,10 @@ service cloud.firestore {
       allow delete: if isSignedIn() && request.auth.uid != uid;
     }
 
-    // Operadores: gestão + operador_painel leem tudo; outros leem apenas o próprio.
+    // Operadores: todos os autenticados leem (dados básicos de equipe, sem financeiro).
+    // Escrita restrita a admin/gestor/administrativo.
     match /operators/{doc} {
-      allow read: if hasRole(['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo', 'planejamento', 'operador_painel'])
-                  || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow read: if isSignedIn();
       allow write: if canWriteOperator();
     }
 
