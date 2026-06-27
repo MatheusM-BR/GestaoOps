@@ -63,6 +63,10 @@ service cloud.firestore {
     match /panelShifts/{doc} {
       allow read, write: if isSignedIn();
     }
+    // Preferência de layout da home — cada usuário só lê/escreve a própria.
+    match /userDashboards/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
 
     // Qualquer outra coleção: negada por padrão.
     match /{document=**} {
