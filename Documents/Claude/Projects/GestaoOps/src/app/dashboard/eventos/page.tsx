@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { fetchAllAuctions, fetchAuctionById, RemateAuction, hasValidToken, getToken, parseRobustDate } from '@/services/remateweb-api';
+import { fetchAllAuctions, RemateAuction, hasValidToken, getToken, parseRobustDate } from '@/services/remateweb-api';
 import { getEvents, createEvent, deleteEvent, updateEvent } from '@/services/events';
 import { GestaoEvent, OperationType, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, EventService, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration, eventStatusBadge, hasEventOccurred } from '@/types/event';
 import { getDocument, getCollection } from '@/lib/firestore';
@@ -42,9 +42,9 @@ export default function EventosPage() {
   const [loadError, setLoadError] = useState('');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncResult, setSyncResult] = useState<{ updated: number; skipped: number } | null>(null);
-  // Intervalo de sincronização de horários (padrão: 30 dias antes a 30 dias após hoje).
-  const [syncStart, setSyncStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return format(d, 'yyyy-MM-dd'); });
-  const [syncEnd, setSyncEnd] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return format(d, 'yyyy-MM-dd'); });
+  // Intervalo de sincronização de horários (padrão: 20 dias antes a 5 dias após hoje).
+  const [syncStart, setSyncStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 20); return format(d, 'yyyy-MM-dd'); });
+  const [syncEnd, setSyncEnd] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 5); return format(d, 'yyyy-MM-dd'); });
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set());
 
@@ -381,6 +381,7 @@ export default function EventosPage() {
     }
     setSyncLoading(true);
     setSyncResult(null);
+    const NEAR = 60000; // 1 min de tolerância
 
     // Filtra eventos da API (têm rematewebId) cuja data está no intervalo escolhido.
     const start = syncStart ? new Date(syncStart + 'T00:00:00') : null;
@@ -393,43 +394,53 @@ export default function EventosPage() {
       return true;
     });
 
-    let updated = 0;
     let skipped = 0;
-    const NEAR = 60000; // 1 min de tolerância
+    try {
+      // 1 busca EM LOTE do intervalo (paginada/paralela) em vez de N chamadas
+      // individuais — evita dezenas de round-trips serializados.
+      const { auctions } = await fetchAllAuctions('date', 1, syncStart || undefined, syncEnd || undefined);
+      const byId = new Map(auctions.map((a) => [a.id, a]));
 
-    for (const evt of targetEvents) {
-      try {
-        const apiData = await fetchAuctionById(Number(evt.rematewebId));
+      // Monta os patches localmente (sem rede).
+      const patches: { id: string; patch: Partial<GestaoEvent> }[] = [];
+      for (const evt of targetEvents) {
+        const apiData = byId.get(Number(evt.rematewebId));
         if (!apiData) { skipped++; continue; }
-
         const patch: Partial<GestaoEvent> = {};
-        // Início
         if (apiData.date) {
           const newStart = parseRobustDate(apiData.date);
           const curStart = evt.date ? toDate(evt.date) : null;
           if (!curStart || Math.abs(newStart.getTime() - curStart.getTime()) >= NEAR) patch.date = newStart;
         }
-        // Fim (encerramento)
         if (apiData.endDate) {
           const newEnd = parseRobustDate(apiData.endDate);
           const curEnd = evt.endDate ? toDate(evt.endDate) : null;
           if (!curEnd || Math.abs(newEnd.getTime() - curEnd.getTime()) >= NEAR) patch.endDate = newEnd;
         }
-
         if (Object.keys(patch).length === 0) { skipped++; continue; }
-
-        await updateEvent(evt.id, patch);
-        setEvents((prev) => prev.map((e) => e.id === evt.id ? { ...e, ...patch } : e));
-        updated++;
-      } catch {
-        skipped++;
+        patches.push({ id: evt.id, patch });
       }
-    }
 
-    setSyncResult({ updated, skipped });
-    setSyncLoading(false);
-    if (updated > 0) showToast(`${updated} evento(s) com horários (início/fim) atualizados da API.`);
-    else showToast(`Nenhuma alteração necessária (${skipped} já atualizados ou sem dados).`, 'info');
+      // Gravações em PARALELO.
+      const results = await Promise.allSettled(patches.map((p) => updateEvent(p.id, p.patch)));
+      const okIds = new Set(patches.filter((_, i) => results[i].status === 'fulfilled').map((p) => p.id));
+      skipped += results.filter((r) => r.status === 'rejected').length;
+
+      setEvents((prev) => prev.map((e) => {
+        const p = patches.find((x) => x.id === e.id);
+        return p && okIds.has(e.id) ? { ...e, ...p.patch } : e;
+      }));
+
+      const updated = okIds.size;
+      setSyncResult({ updated, skipped });
+      if (updated > 0) showToast(`${updated} evento(s) com horários (início/fim) atualizados da API.`);
+      else showToast(`Nenhuma alteração necessária (${skipped} já atualizados ou sem dados).`, 'info');
+    } catch (err) {
+      console.error('[sync]', err);
+      showToast('Erro ao sincronizar com a API.', 'error');
+    } finally {
+      setSyncLoading(false);
+    }
   };
 
   const updateLocalEventService = (
