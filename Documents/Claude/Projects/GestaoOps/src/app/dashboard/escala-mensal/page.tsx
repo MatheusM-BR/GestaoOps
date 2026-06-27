@@ -9,7 +9,7 @@ import { Operator, PaymentRules, isOperatorRestDay } from '@/types/operator';
 import { calculateOperatorPayment, calculatePanelShiftValue } from '@/lib/payment-engine';
 import { Holiday } from '@/types/payment';
 import { getScheduleNotes, setScheduleNote, deleteScheduleNote } from '@/services/scheduleNotes';
-import { getPanelShifts, setPanelShift, deletePanelShift, PanelShift } from '@/services/panelShifts';
+import { getPanelShifts, setPanelShift, deletePanelShift, PanelShift, PANEL_DEFAULT } from '@/services/panelShifts';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, addMonths, subMonths, startOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, X, Monitor, Users, MapPin, Clock } from 'lucide-react';
@@ -316,7 +316,7 @@ export default function EscalaMensalPage() {
   // Grade enriquecida (operador → dia → escalas com valor) + total do mês por
   // operador. Tudo computado UMA vez por mudança de dados — sem custo por render.
   type Cell = { evt: EventWithId; a: EventAssignment; value: number; isReal: boolean };
-  type PanelCov = { events: EventWithId[]; entry: string; exit?: string; windowLabel: string; manual: boolean; shiftType?: '1T' | '2T' | 'manual'; durationMin: number; value: number; isReal: boolean };
+  type PanelCov = { events: EventWithId[]; entry: string; exit?: string; windowLabel: string; manual: boolean; shiftType?: 'full' | '1T' | '2T' | 'manual'; durationMin: number; value: number; isReal: boolean };
   const { enrichedGrid, monthTotals, weekTotals, panelCoverage } = useMemo(() => {
     const eg = new Map<string, Map<string, Cell[]>>();
     const totals = new Map<string, number>();
@@ -429,7 +429,7 @@ export default function EscalaMensalPage() {
   };
 
   // Turno de painel: escala o operador no dia com tipo de turno + horários.
-  const savePanelShift = async (op: OperatorWithId, k: string, entryTime: string, exitTime: string, shiftType?: '1T' | '2T' | 'manual') => {
+  const savePanelShift = async (op: OperatorWithId, k: string, entryTime: string, exitTime: string, shiftType?: 'full' | '1T' | '2T' | 'manual') => {
     setSaving(true);
     setPanelShifts((prev) => [
       ...prev.filter((p) => !(p.operatorId === op.id && p.date === k)),
@@ -675,8 +675,8 @@ export default function EscalaMensalPage() {
                           >
                             {pcov ? (
                               <>
-                                <div style={{ fontSize: '9px', fontWeight: 700, color: pcov.shiftType === '1T' ? '#2F6FED' : pcov.shiftType === '2T' ? '#7C3AED' : 'var(--text-secondary)' }}>
-                                  {pcov.shiftType === '1T' ? '1º Turno' : pcov.shiftType === '2T' ? '2º Turno' : pcov.shiftType === 'manual' ? 'Manual' : 'Auto'}
+                                <div style={{ fontSize: '9px', fontWeight: 700, color: pcov.shiftType === '1T' ? '#2F6FED' : pcov.shiftType === '2T' ? '#7C3AED' : pcov.shiftType === 'full' ? 'var(--success)' : 'var(--text-secondary)' }}>
+                                  {pcov.shiftType === 'full' ? 'Plantão' : pcov.shiftType === '1T' ? '1º Turno' : pcov.shiftType === '2T' ? '2º Turno' : pcov.shiftType === 'manual' ? 'Manual' : 'Auto'}
                                 </div>
                                 <div style={{ fontSize: '8.5px', color: 'var(--text-muted)' }}>{pcov.windowLabel || '—'}</div>
                                 <div style={{ fontSize: '10px', fontWeight: 700, color: pcov.value === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : pcov.isReal ? 'var(--success)' : 'var(--text-secondary)' }} title="Valor do turno">
@@ -691,7 +691,7 @@ export default function EscalaMensalPage() {
                                 shiftType={pcov?.shiftType}
                                 assigned={!!pcov}
                                 coveredCount={pcov?.events.length || 0}
-                                onSave={(entryT, exitT, st) => savePanelShift(op, k, entryT, exitT, st)}
+                                onSave={(entryT: string, exitT: string, st: 'full' | '1T' | '2T' | 'manual') => savePanelShift(op, k, entryT, exitT, st)}
                                 onRemove={() => removePanelShiftFor(op.id, k)}
                                 onClose={() => setOpenCell(null)}
                               />
@@ -963,8 +963,9 @@ function ExternalPicker({
 }
 
 /* Box de turno do operador de painel.
- * 1º Turno: início automático dos leilões → hora da troca (exitTime).
- * 2º Turno: hora da troca (entryTime) → fim automático dos leilões.
+ * Plantão: turno padrão 17:00–01:00 (operador único no dia).
+ * 1º Turno: 17:00 → hora da troca.
+ * 2º Turno: hora da troca → 01:00.
  * Manual: entrada e saída livres.
  */
 function PanelShiftPicker({
@@ -972,41 +973,36 @@ function PanelShiftPicker({
 }: {
   entry: string;
   exit: string;
-  shiftType?: '1T' | '2T' | 'manual';
+  shiftType?: 'full' | '1T' | '2T' | 'manual';
   assigned: boolean;
   coveredCount: number;
-  onSave: (entryTime: string, exitTime: string, shiftType: '1T' | '2T' | 'manual') => void;
+  onSave: (entryTime: string, exitTime: string, shiftType: 'full' | '1T' | '2T' | 'manual') => void;
   onRemove: () => void;
   onClose: () => void;
 }) {
-  // Deriva a hora da troca da entrada salva (se já escalado).
   const savedTroca = initialShiftType === '1T' ? (exit || '') : initialShiftType === '2T' ? (entry || '') : '';
 
-  const [mode, setMode] = useState<'1T' | '2T' | 'manual' | null>(initialShiftType || null);
-  const [troca, setTroca] = useState(savedTroca); // hora da troca para 1T/2T
+  const [mode, setMode] = useState<'full' | '1T' | '2T' | 'manual' | null>(initialShiftType || null);
+  const [troca, setTroca] = useState(savedTroca);
   const [manStart, setManStart] = useState(entry || '');
   const [manEnd, setManEnd] = useState(exit || '');
 
-  const handleModeChange = (m: '1T' | '2T' | 'manual') => {
-    setMode(m);
-    if (m !== 'manual' && !troca) setTroca('');
-  };
-
   const canSave = mode !== null && (
-    (mode === '1T' && !!troca) ||
-    (mode === '2T' && !!troca) ||
+    mode === 'full' ||
+    ((mode === '1T' || mode === '2T') && !!troca) ||
     (mode === 'manual' && !!manStart && !!manEnd)
   );
 
   const save = () => {
     if (!mode) return;
-    if (mode === '1T') onSave('', troca, '1T');        // entra com leilão, sai na troca
-    else if (mode === '2T') onSave(troca, '', '2T');   // entra na troca, sai com leilão
+    if (mode === 'full') onSave(PANEL_DEFAULT.entry, PANEL_DEFAULT.exit, 'full');
+    else if (mode === '1T') onSave(PANEL_DEFAULT.entry, troca, '1T'); // 17:00 → troca
+    else if (mode === '2T') onSave(troca, PANEL_DEFAULT.exit, '2T'); // troca → 01:00
     else onSave(manStart, manEnd, 'manual');
   };
 
   const btnBase: React.CSSProperties = {
-    flex: 1, fontSize: '11px', fontWeight: 600, padding: '7px 4px', borderRadius: 'var(--radius-md)',
+    flex: 1, fontSize: '10.5px', fontWeight: 600, padding: '7px 4px', borderRadius: 'var(--radius-md)',
     border: '1.5px solid var(--border)', background: 'transparent', cursor: 'pointer', transition: 'all 0.12s',
     textAlign: 'center' as const, lineHeight: 1.3,
   };
@@ -1015,7 +1011,7 @@ function PanelShiftPicker({
     <div
       onClick={(e) => e.stopPropagation()}
       style={{
-        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '235px',
+        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '240px',
         background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
         boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: '10px',
       }}
@@ -1025,25 +1021,36 @@ function PanelShiftPicker({
         <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} style={{ padding: '2px' }}><X size={13} /></button>
       </div>
 
-      {/* Seleção de modo */}
+      {/* Linha 1: Plantão completo */}
+      <button
+        style={{ ...btnBase, width: '100%', marginBottom: '6px', borderColor: mode === 'full' ? 'var(--success)' : 'var(--border)', background: mode === 'full' ? 'rgba(34,197,94,0.12)' : 'transparent', color: mode === 'full' ? 'var(--success)' : 'var(--text-secondary)' }}
+        onClick={() => setMode('full')}
+      >
+        Plantão completo
+        <span style={{ fontSize: '9px', fontWeight: 400, marginLeft: '6px', opacity: 0.85 }}>
+          {PANEL_DEFAULT.entry} → {PANEL_DEFAULT.exit}
+        </span>
+      </button>
+
+      {/* Linha 2: 1T / 2T / Manual */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
         <button
           style={{ ...btnBase, borderColor: mode === '1T' ? '#2F6FED' : 'var(--border)', background: mode === '1T' ? 'rgba(47,111,237,0.12)' : 'transparent', color: mode === '1T' ? '#2F6FED' : 'var(--text-secondary)' }}
-          onClick={() => handleModeChange('1T')}
+          onClick={() => setMode('1T')}
         >
           1º Turno
-          <div style={{ fontSize: '9px', fontWeight: 400, opacity: 0.8 }}>início → troca</div>
+          <div style={{ fontSize: '9px', fontWeight: 400, opacity: 0.8 }}>17h → troca</div>
         </button>
         <button
           style={{ ...btnBase, borderColor: mode === '2T' ? '#7C3AED' : 'var(--border)', background: mode === '2T' ? 'rgba(124,58,237,0.12)' : 'transparent', color: mode === '2T' ? '#7C3AED' : 'var(--text-secondary)' }}
-          onClick={() => handleModeChange('2T')}
+          onClick={() => setMode('2T')}
         >
           2º Turno
-          <div style={{ fontSize: '9px', fontWeight: 400, opacity: 0.8 }}>troca → fim</div>
+          <div style={{ fontSize: '9px', fontWeight: 400, opacity: 0.8 }}>troca → 01h</div>
         </button>
         <button
           style={{ ...btnBase, borderColor: mode === 'manual' ? 'var(--primary)' : 'var(--border)', background: mode === 'manual' ? 'var(--primary-light)' : 'transparent', color: mode === 'manual' ? 'var(--primary)' : 'var(--text-muted)' }}
-          onClick={() => handleModeChange('manual')}
+          onClick={() => { setMode('manual'); if (!manStart) setManStart(PANEL_DEFAULT.entry); if (!manEnd) setManEnd(PANEL_DEFAULT.exit); }}
         >
           <Clock size={11} />
           <div style={{ fontSize: '9px' }}>Manual</div>

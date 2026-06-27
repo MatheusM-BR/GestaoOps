@@ -10,14 +10,11 @@ export interface PanelShift {
   operatorName: string;
   entryTime: string;   // HH:mm — hora inicial
   exitTime?: string;   // HH:mm — hora final (se vazio, usa fim do último evento)
-  shiftType?: '1T' | '2T' | 'manual'; // undefined = legado/automático
+  shiftType?: 'full' | '1T' | '2T' | 'manual'; // undefined = legado/automático
 }
 
-// Horários padrão dos turnos de painel.
-export const TURNO_PRESET = {
-  '1T': { entry: '07:00', exit: '13:00', label: '1º Turno' },
-  '2T': { entry: '13:00', exit: '22:00', label: '2º Turno' },
-} as const;
+// Horário padrão do plantão de painel: 17:00 → 01:00 (madrugada).
+export const PANEL_DEFAULT = { entry: '17:00', exit: '01:00' } as const;
 
 const COLLECTION = 'panelShifts';
 
@@ -35,7 +32,7 @@ export async function setPanelShift(
   operatorName: string,
   entryTime: string,
   exitTime: string,
-  shiftType?: '1T' | '2T' | 'manual',
+  shiftType?: 'full' | '1T' | '2T' | 'manual',
 ): Promise<void> {
   return setDocument(COLLECTION, shiftId(date, operatorId), {
     date, operatorId, operatorName, entryTime, exitTime, shiftType,
