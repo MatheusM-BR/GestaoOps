@@ -9,6 +9,7 @@ import { Operator, PaymentRules, isOperatorRestDay } from '@/types/operator';
 import { calculateOperatorPayment, calculatePanelShiftValue } from '@/lib/payment-engine';
 import { Holiday } from '@/types/payment';
 import { getScheduleNotes, setScheduleNote, deleteScheduleNote } from '@/services/scheduleNotes';
+import { getPanelShifts, setPanelShift, deletePanelShift, PanelShift } from '@/services/panelShifts';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, addMonths, subMonths, startOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, X, Monitor, Users, MapPin } from 'lucide-react';
@@ -52,6 +53,22 @@ function isPanelOperator(op: OperatorWithId): boolean {
   return (op.functions || []).includes('operador_painel') || op.role === 'operador_painel';
 }
 
+// "Bora Leilão" (programa) — o operador de painel NÃO cobre. Identificado pelo serviço.
+function isBoraEvent(e: GestaoEvent): boolean {
+  return (e.services || []).some((s) => (s.serviceName || '').toLowerCase().includes('bora'));
+}
+
+// Constrói uma Date no dia `day` no horário 'HH:mm'.
+function atTime(day: Date, hhmm: string): Date {
+  const [h, m] = (hhmm || '00:00').split(':').map(Number);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h || 0, m || 0);
+}
+
+// Reconstrói uma Date local a partir da chave 'yyyy-MM-dd'.
+function dateFromKey(k: string): Date {
+  return new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)) - 1, Number(k.slice(8, 10)));
+}
+
 export default function EscalaMensalPage() {
   const { profile } = useAuth();
   const [events, setEvents] = useState<EventWithId[]>([]);
@@ -64,6 +81,7 @@ export default function EscalaMensalPage() {
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({});
   const [mtValue, setMtValue] = useState(MT_DEFAULT_VALUE);
   const [notes, setNotes] = useState<Map<string, string>>(new Map()); // `${opId}|${dayKey}` → rótulo manual
+  const [panelShifts, setPanelShifts] = useState<PanelShift[]>([]); // turnos de painel (op cobre o dia a partir da entrada)
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -86,7 +104,7 @@ export default function EscalaMensalPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [evts, ops, rolesDoc, funcDoc, n1Doc, n2Doc, svcDoc, mtDoc, hols, schedNotes] = await Promise.all([
+      const [evts, ops, rolesDoc, funcDoc, n1Doc, n2Doc, svcDoc, mtDoc, hols, schedNotes, pShifts] = await Promise.all([
         getEvents().catch(() => [] as EventWithId[]),
         getActiveOperators().catch(() => [] as OperatorWithId[]),
         getDocument<{ list: string[] }>('settings', 'roles').catch(() => null),
@@ -97,11 +115,13 @@ export default function EscalaMensalPage() {
         getDocument<{ value: number }>('settings', 'mt_studio').catch(() => null),
         getCollection<{ date: string }>('holidays').catch(() => []),
         getScheduleNotes().catch(() => []),
+        getPanelShifts().catch(() => []),
       ]);
       setEvents(evts);
       setOperators(ops);
       setHolidays(hols);
       setNotes(new Map(schedNotes.map((n) => [`${n.operatorId}|${n.date}`, n.label])));
+      setPanelShifts(pShifts);
       if (rolesDoc?.list?.length) { setRoles(rolesDoc.list); setCellRole((p) => p || rolesDoc.list[0]); }
       else setCellRole((p) => p || 'Diretor');
       if (funcDoc) setRulesFunc({ ...funcDoc, contractType: 'funcionario' });
@@ -286,13 +306,11 @@ export default function EscalaMensalPage() {
   // Grade enriquecida (operador → dia → escalas com valor) + total do mês por
   // operador. Tudo computado UMA vez por mudança de dados — sem custo por render.
   type Cell = { evt: EventWithId; a: EventAssignment; value: number; isReal: boolean };
-  type PanelSeg = { start: Date; end: Date; assignment: EventAssignment };
-  const { enrichedGrid, monthTotals, weekTotals, panelDayValues } = useMemo(() => {
+  type PanelCov = { events: EventWithId[]; entry: string; durationMin: number; value: number; isReal: boolean };
+  const { enrichedGrid, monthTotals, weekTotals, panelCoverage } = useMemo(() => {
     const eg = new Map<string, Map<string, Cell[]>>();
     const totals = new Map<string, number>();
     const wTotals = new Map<string, number[]>(); // opId → valor por índice de semana
-    const panelVals = new Map<string, Map<string, number>>();   // painel: opId → dia → valor do turno
-    const panelSegs = new Map<string, Map<string, PanelSeg[]>>(); // painel: opId → dia → segmentos
 
     const addTotal = (opId: string, d: Date, v: number) => {
       if (d < monthStart || d > monthEnd) return;
@@ -311,34 +329,46 @@ export default function EscalaMensalPage() {
         const dm = eg.get(a.operatorId)!;
         if (!dm.has(k)) dm.set(k, []);
         dm.get(k)!.push({ evt: e, a, value, isReal });
-
-        if (e.operationType === 'retransmissao') continue; // não escala equipe / não custa
-
-        if (op && isPanelOperator(op)) {
-          // Painel: acumula segmentos do dia para calcular UM valor por turno depois.
-          if (!panelSegs.has(a.operatorId)) panelSegs.set(a.operatorId, new Map());
-          const sm = panelSegs.get(a.operatorId)!;
-          if (!sm.has(k)) sm.set(k, []);
-          sm.get(k)!.push({ start: d, end: toDate(e.endDate || e.date), assignment: a });
-        } else {
-          addTotal(a.operatorId, d, value); // demais: por evento
+        // Painel é por turno (panelShifts), não por evento; demais somam por evento.
+        if (e.operationType !== 'retransmissao' && !(op && isPanelOperator(op))) {
+          addTotal(a.operatorId, d, value);
         }
       }
     }
 
-    // Operação de Painel: 1 valor por TURNO/dia (duração coberta × faixa de horas).
-    for (const [opId, dayMap] of panelSegs) {
-      const op = operatorsById.get(opId);
-      const rules = resolveRules(op);
-      for (const [k, segs] of dayMap) {
-        const d = new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)) - 1, Number(k.slice(8, 10)));
-        const dow = d.getDay();
-        const isSpecial = dow === 0 || dow === 6 || isHoliday(d);
+    // Operação de Painel: cobre TODOS os eventos do dia (exceto Bora), a partir da
+    // hora de entrada. Custo por turno = janela [entrada → fim] × faixa de horas.
+    // Dois operadores no dia: a entrada do 2º é a troca (rateio proporcional).
+    const panelCov = new Map<string, Map<string, PanelCov>>();
+    const shiftsByDay = new Map<string, PanelShift[]>();
+    for (const ps of panelShifts) {
+      if (!shiftsByDay.has(ps.date)) shiftsByDay.set(ps.date, []);
+      shiftsByDay.get(ps.date)!.push(ps);
+    }
+    for (const [k, shifts] of shiftsByDay) {
+      const sorted = [...shifts].sort((a, b) => a.entryTime.localeCompare(b.entryTime));
+      const d = dateFromKey(k);
+      const dow = d.getDay();
+      const isSpecial = dow === 0 || dow === 6 || isHoliday(d);
+      const dayEvs = events.filter((e) => dayKey(toDate(e.date)) === k && !isBoraEvent(e));
+      const lastEnd = dayEvs.reduce((mx, e) => Math.max(mx, toDate(e.endDate || e.date).getTime()), 0);
+      for (let idx = 0; idx < sorted.length; idx++) {
+        const ps = sorted[idx];
+        const op = operatorsById.get(ps.operatorId);
+        const entry = atTime(d, ps.entryTime);
+        const nextEntry = idx + 1 < sorted.length ? atTime(d, sorted[idx + 1].entryTime).getTime() : (lastEnd || entry.getTime());
+        const shiftEnd = Math.max(entry.getTime(), Math.min(nextEntry, lastEnd || entry.getTime()));
+        const covered = dayEvs.filter((e) => {
+          const s = toDate(e.date).getTime(); const en = toDate(e.endDate || e.date).getTime();
+          return en > entry.getTime() && s < shiftEnd;
+        });
+        const rules = resolveRules(op);
         const onRest = op ? isOperatorRestDay(op, d) : false;
-        const { value } = calculatePanelShiftValue(segs, rules, isSpecial, onRest, rulesN2);
-        if (!panelVals.has(opId)) panelVals.set(opId, new Map());
-        panelVals.get(opId)!.set(k, value);
-        addTotal(opId, d, value);
+        const { value, durationMinutes } = calculatePanelShiftValue([{ start: entry, end: new Date(shiftEnd), assignment: {} }], rules, isSpecial, onRest, rulesN2);
+        const isReal = lastEnd > 0 && lastEnd < Date.now();
+        if (!panelCov.has(ps.operatorId)) panelCov.set(ps.operatorId, new Map());
+        panelCov.get(ps.operatorId)!.set(k, { events: covered, entry: ps.entryTime, durationMin: durationMinutes, value, isReal });
+        addTotal(ps.operatorId, d, value);
       }
     }
 
@@ -350,8 +380,8 @@ export default function EscalaMensalPage() {
       const d = new Date(key.slice(sep + 1));
       addTotal(opId, d, VIAGEM_VALUE);
     }
-    return { enrichedGrid: eg, monthTotals: totals, weekTotals: wTotals, panelDayValues: panelVals };
-  }, [events, notes, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd, weeks, isHoliday, resolveRules, rulesN2]);
+    return { enrichedGrid: eg, monthTotals: totals, weekTotals: wTotals, panelCoverage: panelCov };
+  }, [events, notes, panelShifts, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd, weeks, isHoliday, resolveRules, rulesN2]);
 
   // ----- mutations -----
   const toggleAssign = async (evt: EventWithId, op: OperatorWithId) => {
@@ -377,6 +407,38 @@ export default function EscalaMensalPage() {
     } catch (err) {
       console.error(err);
       showToast('Erro ao salvar. Recarregando…', 'error');
+      await loadData();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Turno de painel: escala o operador no dia com hora de entrada (cobre tudo a partir daí).
+  const savePanelShift = async (op: OperatorWithId, k: string, entryTime: string) => {
+    setSaving(true);
+    setPanelShifts((prev) => [
+      ...prev.filter((p) => !(p.operatorId === op.id && p.date === k)),
+      { date: k, operatorId: op.id, operatorName: op.name, entryTime },
+    ]);
+    try {
+      await setPanelShift(k, op.id, op.name, entryTime);
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao salvar turno. Recarregando…', 'error');
+      await loadData();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removePanelShiftFor = async (opId: string, k: string) => {
+    setSaving(true);
+    setPanelShifts((prev) => prev.filter((p) => !(p.operatorId === opId && p.date === k)));
+    try {
+      await deletePanelShift(k, opId);
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao remover turno. Recarregando…', 'error');
       await loadData();
     } finally {
       setSaving(false);
@@ -569,11 +631,49 @@ export default function EscalaMensalPage() {
                       const k = dayKey(d);
                       const dow = getDay(d);
                       const red = dow === 0 || dow === 6 || isHoliday(d);
-                      // Escala de operadores: estúdio + externo (sem retransmissão, que não escala equipe).
-                      const cell = (enrichedGrid.get(op.id)?.get(k) || []).filter((c) => c.evt.operationType !== 'retransmissao');
-                      const note = notes.get(`${op.id}|${k}`);
                       const rest = isOperatorRestDay(op, d);
                       const isOpen = openCell?.rowId === op.id && openCell?.key === k;
+
+                      // ----- Operador de PAINEL: turno por dia (cobre tudo exceto Bora) -----
+                      if (isPanel) {
+                        const pcov = panelCoverage.get(op.id)?.get(k);
+                        return (
+                          <td
+                            key={k}
+                            onClick={() => canEdit && setOpenCell(isOpen ? null : { rowId: op.id, key: k })}
+                            title={rest ? 'Folga' : undefined}
+                            style={{
+                              position: 'relative', verticalAlign: 'middle', textAlign: 'center', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default',
+                              background: pcov ? (rest ? 'rgba(245,158,11,0.12)' : 'var(--primary-light)') : red ? 'rgba(239,68,68,0.05)' : rest ? 'rgba(239,68,68,0.08)' : zebra ? 'rgba(148,163,184,0.05)' : undefined,
+                              outline: isOpen ? '2px solid var(--primary)' : undefined,
+                            }}
+                          >
+                            {pcov ? (
+                              <>
+                                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>entra {pcov.entry}</div>
+                                <div style={{ fontSize: '9px', fontWeight: 500, color: 'var(--text-secondary)' }}>{pcov.events.length} leilão(ões)</div>
+                                <div style={{ fontSize: '10px', fontWeight: 700, color: pcov.value === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : pcov.isReal ? 'var(--success)' : 'var(--text-secondary)' }} title="Valor do turno — cobre os eventos do dia a partir da entrada (exceto Bora)">
+                                  {pcov.value === 0 ? 'R$ 0' : `${pcov.isReal ? '' : '~'}R$ ${Math.round(pcov.value)}`} <span style={{ fontSize: '8px', fontWeight: 500, color: 'var(--text-muted)' }}>/turno</span>
+                                </div>
+                              </>
+                            ) : (rest ? <span style={{ fontSize: '9px', color: '#ef4444' }}>Folga</span> : null)}
+                            {isOpen && (
+                              <PanelShiftPicker
+                                entry={pcov?.entry || ''}
+                                assigned={!!pcov}
+                                coveredCount={pcov?.events.length || 0}
+                                onSave={(t) => savePanelShift(op, k, t)}
+                                onRemove={() => removePanelShiftFor(op.id, k)}
+                                onClose={() => setOpenCell(null)}
+                              />
+                            )}
+                          </td>
+                        );
+                      }
+
+                      // ----- Operador comum (estúdio/externo): valor por evento -----
+                      const cell = (enrichedGrid.get(op.id)?.get(k) || []).filter((c) => c.evt.operationType !== 'retransmissao');
+                      const note = notes.get(`${op.id}|${k}`);
                       return (
                         <td
                           key={k}
@@ -599,22 +699,12 @@ export default function EscalaMensalPage() {
                                 {(a.shiftTime || evt.date) && (
                                   <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{a.shiftTime || format(toDate(evt.date), 'HH:mm')}</div>
                                 )}
-                                {!isPanel && (
-                                  <div style={{ fontSize: '10px', fontWeight: 700, color: value === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : studioPending ? '#C77F0A' : isReal ? 'var(--success)' : 'var(--text-secondary)' }} title={rest ? 'Escalado em folga — gera valor extra' : studioPending ? 'Estúdio — valor provisório até a finalização' : undefined}>
-                                    {value === 0 ? 'R$ 0' : `${isReal ? '' : '~'}R$ ${Math.round(value)}`}
-                                  </div>
-                                )}
+                                <div style={{ fontSize: '10px', fontWeight: 700, color: value === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : studioPending ? '#C77F0A' : isReal ? 'var(--success)' : 'var(--text-secondary)' }} title={rest ? 'Escalado em folga — gera valor extra' : studioPending ? 'Estúdio — valor provisório até a finalização' : undefined}>
+                                  {value === 0 ? 'R$ 0' : `${isReal ? '' : '~'}R$ ${Math.round(value)}`}
+                                </div>
                               </div>
                             );
                           })}
-                          {isPanel && cell.length > 0 && (() => {
-                            const pv = panelDayValues.get(op.id)?.get(k) || 0;
-                            return (
-                              <div style={{ fontSize: '10px', fontWeight: 700, color: pv === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : 'var(--success)' }} title="Valor do turno (cobre os eventos do horário)">
-                                {pv === 0 ? 'R$ 0' : `R$ ${Math.round(pv)}`} <span style={{ fontSize: '8px', fontWeight: 500, color: 'var(--text-muted)' }}>/turno</span>
-                              </div>
-                            );
-                          })()}
                           {note && (
                             <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '70px', margin: '0 auto' }} title={note}>
                               {note}{note.trim().toLowerCase() === 'viagem' ? <span style={{ color: 'var(--accent)', fontStyle: 'normal', fontWeight: 600 }}> · R$ {VIAGEM_VALUE}</span> : null}
@@ -839,6 +929,47 @@ function ExternalPicker({
         </div>
       )}
       <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>Marcar = define externo e cria alerta de planejamento.</p>
+    </div>
+  );
+}
+
+/* Box de turno do operador de painel: define a hora de entrada (cobre tudo a partir daí). */
+function PanelShiftPicker({
+  entry, assigned, coveredCount, onSave, onRemove, onClose,
+}: {
+  entry: string;
+  assigned: boolean;
+  coveredCount: number;
+  onSave: (entryTime: string) => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const [time, setTime] = useState(entry || '');
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '220px',
+        background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: '10px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>Turno de painel</span>
+        <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} style={{ padding: '2px' }}><X size={13} /></button>
+      </div>
+      <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+        Cobre todos os eventos do dia (estúdio/externo/retransmissão, exceto Bora) a partir da hora de entrada.
+      </p>
+      <div className="input-group" style={{ marginBottom: '10px' }}>
+        <label style={{ fontSize: '11px' }}>Hora de entrada</label>
+        <input className="input" type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+      </div>
+      <div style={{ display: 'flex', gap: '6px' }}>
+        <button className="btn btn-primary btn-sm" style={{ flex: 1, fontSize: '11px' }} disabled={!time} onClick={() => onSave(time)}>{assigned ? 'Atualizar' : 'Escalar'}</button>
+        {assigned && <button className="btn btn-ghost btn-sm" style={{ fontSize: '11px', color: 'var(--error)' }} onClick={onRemove}>Remover</button>}
+      </div>
+      {assigned && <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>Cobrindo {coveredCount} leilão(ões) neste turno.</p>}
     </div>
   );
 }

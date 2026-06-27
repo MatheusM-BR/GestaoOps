@@ -59,6 +59,10 @@ service cloud.firestore {
     match /notifications/{doc} {
       allow read, write: if isSignedIn();
     }
+    // Turnos de operador de painel (Modelo de Escala).
+    match /panelShifts/{doc} {
+      allow read, write: if isSignedIn();
+    }
 
     // Qualquer outra coleção: negada por padrão.
     match /{document=**} {
