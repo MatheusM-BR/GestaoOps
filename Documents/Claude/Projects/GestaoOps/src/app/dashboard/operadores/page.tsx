@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getOperators, createOperator, deleteOperator } from '@/services/operators';
+import { getPendingBlockouts, reviewBlockout, OperatorBlockout, BLOCKOUT_REASON_LABELS } from '@/services/blockouts';
 import { Operator, ContractType, OperatorRole } from '@/types/operator';
 import { maskPhone } from '@/lib/masks';
 import Link from 'next/link';
@@ -10,8 +11,10 @@ import { useAuth } from '@/lib/auth-context';
 import { logAudit } from '@/services/auditLog';
 import {
   Plus, Search, UserCircle, Phone, Mail,
-  MoreVertical, Trash2, Edit, Filter,
+  MoreVertical, Trash2, Edit, Filter, Clock, CheckCircle, XCircle,
 } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 const contractLabels: Record<ContractType, string> = {
   funcionario: 'Funcionário',
@@ -31,6 +34,8 @@ const avatarColors = [
 export default function OperadoresPage() {
   const router = useRouter();
   const { profile } = useAuth();
+  const [pendingBlockouts, setPendingBlockouts] = useState<OperatorBlockout[]>([]);
+  const [reviewLoading, setReviewLoading] = useState<string | null>(null);
   const [operators, setOperators] = useState<(Operator & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -50,13 +55,27 @@ export default function OperadoresPage() {
 
   const loadOperators = async () => {
     try {
-      const ops = await getOperators();
+      const [ops, pending] = await Promise.all([
+        getOperators(),
+        getPendingBlockouts().catch(() => [] as OperatorBlockout[]),
+      ]);
       setOperators(ops);
+      setPendingBlockouts(pending);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleReviewBlockout = async (id: string, approved: boolean) => {
+    if (!profile) return;
+    setReviewLoading(id);
+    try {
+      await reviewBlockout(id, approved ? 'aprovado' : 'recusado', profile.name);
+      setPendingBlockouts((prev) => prev.filter((b) => b.id !== id));
+    } catch { /* silent */ }
+    finally { setReviewLoading(null); }
   };
 
   useEffect(() => { loadOperators(); }, []);
@@ -131,11 +150,61 @@ export default function OperadoresPage() {
           <h1>Operadores</h1>
           <p>{operators.length} operadores cadastrados</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-          <Plus size={18} />
-          Novo Operador
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {pendingBlockouts.length > 0 && (
+            <span className="badge badge-warning" style={{ fontSize: '12.5px' }}>
+              <Clock size={12} style={{ marginRight: '4px' }} />
+              {pendingBlockouts.length} solicitação(ões) pendente(s)
+            </span>
+          )}
+          <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+            <Plus size={18} />
+            Novo Operador
+          </button>
+        </div>
       </div>
+
+      {/* Solicitações de ausência pendentes (CLT → gestor aprova) */}
+      {pendingBlockouts.length > 0 && (
+        <div className="card animate-in" style={{ marginBottom: '24px', borderLeft: '3px solid var(--warning)' }}>
+          <h3 style={{ fontSize: '15px', marginBottom: '12px', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Clock size={15} /> Solicitações de ausência pendentes
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {pendingBlockouts.map((b) => (
+              <div key={b.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 14px', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '13.5px' }}>{b.operatorName}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    {b.dateFrom === b.dateTo
+                      ? format(parseISO(b.dateFrom), "dd/MM/yyyy", { locale: ptBR })
+                      : `${format(parseISO(b.dateFrom), "dd/MM", { locale: ptBR })} → ${format(parseISO(b.dateTo), "dd/MM/yyyy", { locale: ptBR })}`}
+                    {' · '}{BLOCKOUT_REASON_LABELS[b.reason]}
+                    {b.note ? ` · ${b.note}` : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                  <button
+                    className="btn btn-sm"
+                    style={{ background: 'var(--error)', color: '#fff' }}
+                    disabled={reviewLoading === b.id}
+                    onClick={() => b.id && handleReviewBlockout(b.id, false)}
+                  >
+                    <XCircle size={13} /> Recusar
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={reviewLoading === b.id}
+                    onClick={() => b.id && handleReviewBlockout(b.id, true)}
+                  >
+                    <CheckCircle size={13} /> Aprovar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="filters-container">

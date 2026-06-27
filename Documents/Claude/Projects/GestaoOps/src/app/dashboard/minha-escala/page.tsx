@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { getOperatorByUid } from '@/services/operators';
-import { getEventsByOperator } from '@/services/events';
+import { getEventsByOperator, updateAssignmentStatus } from '@/services/events';
 import { getCollection } from '@/lib/firestore';
 import { Operator } from '@/types/operator';
 import { GestaoEvent } from '@/types/event';
@@ -31,6 +31,8 @@ export default function MinhaEscalaPage() {
   const [events, setEvents] = useState<(GestaoEvent & { id: string })[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: string } | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<Date | null>(new Date());
 
@@ -56,6 +58,46 @@ export default function MinhaEscalaPage() {
     }
     load();
   }, [user]);
+
+  const showToast = (message: string, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const isFreelancer = operator?.contractType === 'freelancer_n1' || operator?.contractType === 'freelancer_n2';
+
+  // Eventos pendentes de confirmação deste freelancer.
+  const pendingEvents = isFreelancer
+    ? events.filter((e) => (e.assignments || []).some((a) => a.operatorId === operator?.id && a.status === 'pendente'))
+    : [];
+
+  const handleConfirm = async (eventId: string) => {
+    if (!operator) return;
+    setActionLoading(eventId + '-confirm');
+    try {
+      await updateAssignmentStatus(eventId, operator.id, 'confirmado');
+      setEvents((prev) => prev.map((e) => e.id !== eventId ? e : {
+        ...e,
+        assignments: (e.assignments || []).map((a) => a.operatorId === operator.id ? { ...a, status: 'confirmado' as const } : a),
+      }));
+      showToast('Serviço confirmado!');
+    } catch { showToast('Erro ao confirmar.', 'error'); }
+    finally { setActionLoading(null); }
+  };
+
+  const handleDecline = async (eventId: string) => {
+    if (!operator) return;
+    setActionLoading(eventId + '-decline');
+    try {
+      await updateAssignmentStatus(eventId, operator.id, 'cancelado');
+      setEvents((prev) => prev.map((e) => e.id !== eventId ? e : {
+        ...e,
+        assignments: (e.assignments || []).map((a) => a.operatorId === operator.id ? { ...a, status: 'cancelado' as const } : a),
+      }));
+      showToast('Serviço recusado. A equipe será notificada.', 'info');
+    } catch { showToast('Erro ao recusar.', 'error'); }
+    finally { setActionLoading(null); }
+  };
 
   const folgaInfo = operator
     ? computeFolgaBalance(operator, events, holidays)
@@ -123,12 +165,63 @@ export default function MinhaEscalaPage() {
 
   return (
     <div>
+      {toast && <div className="toast-container"><div className={`toast toast-${toast.type}`}>{toast.message}</div></div>}
+
       <div className="page-header">
         <div>
           <h1>Minha Escala</h1>
           <p>{monthEvents.length} serviço(s) em {format(currentMonth, 'MMMM yyyy', { locale: ptBR })} · {upcomingEvents.length} próximo(s)</p>
         </div>
+        {pendingEvents.length > 0 && (
+          <span className="badge badge-warning" style={{ fontSize: '13px', padding: '4px 10px' }}>
+            {pendingEvents.length} aguardando confirmação
+          </span>
+        )}
       </div>
+
+      {/* Pendências de confirmação (somente freelancers) */}
+      {pendingEvents.length > 0 && (
+        <div className="card animate-in" style={{ marginBottom: '24px', borderLeft: '3px solid var(--warning)' }}>
+          <h3 style={{ fontSize: '15px', marginBottom: '14px', color: 'var(--warning)' }}>
+            Serviços aguardando sua confirmação
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {pendingEvents.map((evt) => {
+              const evtDate = toDate(evt.date);
+              const loading_c = actionLoading === evt.id + '-confirm';
+              const loading_d = actionLoading === evt.id + '-decline';
+              return (
+                <div key={evt.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '12px 14px', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '14px' }}>{evt.title}</div>
+                    <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      {format(evtDate, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })} · {evt.city || 'N/D'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                    <button
+                      className="btn btn-sm"
+                      style={{ background: 'var(--error)', color: '#fff', opacity: loading_d ? 0.7 : 1 }}
+                      disabled={!!actionLoading}
+                      onClick={() => handleDecline(evt.id)}
+                    >
+                      {loading_d ? '...' : 'Recusar'}
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={!!actionLoading}
+                      style={{ opacity: loading_c ? 0.7 : 1 }}
+                      onClick={() => handleConfirm(evt.id)}
+                    >
+                      {loading_c ? '...' : 'Confirmar'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px' }}>
         {/* Calendar */}

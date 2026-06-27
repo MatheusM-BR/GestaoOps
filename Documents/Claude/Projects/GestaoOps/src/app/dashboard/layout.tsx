@@ -25,6 +25,7 @@ import {
   Bell,
   LayoutGrid,
   PanelLeft,
+  Radio,
 } from 'lucide-react';
 
 interface NavItem {
@@ -44,6 +45,7 @@ const managementNav: NavItem[] = [
   { label: 'Calendário', href: '/dashboard/calendario', icon: CalendarDays },
   { label: 'Financeiro', href: '/dashboard/financeiro', icon: DollarSign, roles: ['admin', 'ceo', 'financeiro'] },
   { label: 'Exportação', href: '/dashboard/exportacao', icon: FileSpreadsheet, roles: ['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo'] },
+  { label: 'Operação ao Vivo', href: '/dashboard/operacao', icon: Radio, roles: ['admin', 'ceo', 'gestor', 'operador_painel', 'administrativo'] },
   { label: 'Notificações', href: '/dashboard/notificacoes', icon: Bell, roles: ['admin', 'ceo', 'gestor'] },
   { label: 'Configurações', href: '/dashboard/configuracoes', icon: Settings, roles: ['admin'] },
   { label: 'Downloader', href: '/dashboard/downloader', icon: Download },
@@ -106,6 +108,7 @@ const ROUTE_GUARDS: { prefix: string; roles: SystemRole[] }[] = [
   { prefix: '/dashboard/escala', roles: EVENT_ACCESS },
   // /dashboard/downloader: sem guard (todos, incluindo freelancers).
   { prefix: '/dashboard/notificacoes', roles: ['admin', 'ceo', 'gestor', 'operador_painel', 'operador_transmissao', 'tecnico'] },
+  { prefix: '/dashboard/operacao', roles: ['admin', 'ceo', 'gestor', 'operador_painel', 'administrativo', 'operador_transmissao', 'tecnico'] },
   // /dashboard/calendario: aberto a todos.
 ];
 

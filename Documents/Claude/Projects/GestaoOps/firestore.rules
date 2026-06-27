@@ -3,79 +3,127 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // ───────────────────────────────────────────────────────────────
-    // Bloqueia TODO acesso não autenticado (antes era aberto à internet).
-    //
-    // Limitação conhecida: o login de gestor via RemateWeb usa auth
-    // anônimo do Firebase, então as regras não conseguem distinguir
-    // papel (role) no servidor para esse fluxo. A separação fina por
-    // papel exige migrar o login para Custom Tokens emitidos por um
-    // backend (Cloud Function) — ver TODO abaixo.
+    // Segurança baseada em role: usa get() para ler o perfil do usuário.
+    // A chamada get() é cacheada por request — não dobra as leituras.
     // ───────────────────────────────────────────────────────────────
 
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Perfil de login: cada usuário lê apenas o próprio documento.
-    // Bloqueio principal: ninguém altera o PRÓPRIO role (anti auto-promoção).
+    // Lê o role do usuário logado. Retorna null se o doc ainda não existe
+    // (primeiro login — evita negar acesso em race condition).
+    function userRole() {
+      let uid = request.auth.uid;
+      return exists(/databases/$(database)/documents/users/$(uid))
+        ? get(/databases/$(database)/documents/users/$(uid)).data.role
+        : null;
+    }
+
+    function hasRole(roles) {
+      return isSignedIn() && userRole() in roles;
+    }
+
+    // Gestão: qualquer papel não-operador.
+    function isManagement() {
+      return hasRole(['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo', 'planejamento']);
+    }
+
+    // Admin exclusivo (configurações, auditoria).
+    function isAdmin() {
+      return hasRole(['admin']);
+    }
+
+    // Quem pode escrever eventos: gestão + operador de painel (não freelancers).
+    function canWriteEvent() {
+      return hasRole(['admin', 'ceo', 'gestor', 'operador_painel', 'comercial', 'administrativo', 'planejamento']);
+    }
+
+    // Quem pode escrever dados de operadores.
+    function canWriteOperator() {
+      return hasRole(['admin', 'ceo', 'gestor', 'administrativo']);
+    }
+
+    // Quem pode escrever configurações.
+    function canWriteSettings() {
+      return hasRole(['admin', 'ceo', 'gestor', 'administrativo']);
+    }
+
+    // Perfil do usuário.
     match /users/{uid} {
       allow read: if isSignedIn() && request.auth.uid == uid;
-      // Atualização: gestão atualiza docs de terceiros; o próprio usuário
-      // só altera campos que não incluam 'role' (ex: mustResetPassword).
       allow update: if isSignedIn() && (
         request.auth.uid != uid ||
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
       );
-      // Criação: apenas para outros uids (fluxo de cadastro de operador).
-      // Impede criar o próprio doc com role arbitrário.
       allow create: if isSignedIn() && request.auth.uid != uid;
       allow delete: if isSignedIn() && request.auth.uid != uid;
     }
 
-    // Coleções operacionais: exigem autenticação.
-    // TODO(segurança): quando o login de gestor migrar para Custom Token
-    // com claim de role, restringir:
-    //   - operators (paymentRules/salários): leitura só gestão ou o próprio
-    //   - events.revenue/expenses: leitura só gestão
+    // Operadores: gestão + operador_painel leem tudo; outros leem apenas o próprio.
     match /operators/{doc} {
-      allow read, write: if isSignedIn();
+      allow read: if hasRole(['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo', 'planejamento', 'operador_painel'])
+                  || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if canWriteOperator();
     }
+
+    // Eventos: todos autenticados leem; freelancers não escrevem.
     match /events/{doc} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow write: if canWriteEvent();
     }
+
+    // Configurações: todos leem; só gestão escreve.
     match /settings/{doc} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow write: if canWriteSettings();
     }
+
     match /holidays/{doc} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow write: if canWriteSettings();
     }
-    // Rótulos manuais de atividade na Modelo de Escala (operador × dia).
+
+    // Rótulos manuais de escala (operador × dia).
     match /scheduleNotes/{doc} {
       allow read, write: if isSignedIn();
     }
-    // Rascunhos de notificações (envio à API RemateWeb é fase futura).
+
+    // Notificações.
     match /notifications/{doc} {
       allow read, write: if isSignedIn();
     }
-    // Turnos de operador de painel (Modelo de Escala).
+
+    // Turnos de operador de painel.
     match /panelShifts/{doc} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow write: if hasRole(['admin', 'ceo', 'gestor', 'operador_painel', 'administrativo']);
     }
+
     // Preferência de layout da home — cada usuário só lê/escreve a própria.
     match /userDashboards/{uid} {
       allow read, write: if isSignedIn() && request.auth.uid == uid;
     }
-    // Log de auditoria — qualquer autenticado escreve; leitura por todos autenticados
-    // (a UI restringe a admin via route guard; regras de role em cloud functions são futuro).
+
+    // Log de auditoria — imutável: create para todos os autenticados; leitura só admin.
     match /auditLog/{doc} {
       allow create: if isSignedIn();
-      allow read: if isSignedIn();
+      allow read: if isAdmin();
       allow update, delete: if false;
     }
 
-    // Qualquer outra coleção: negada por padrão.
+    // Disponibilidade / blockouts de operadores.
+    match /operatorBlockouts/{doc} {
+      // Gestão lê tudo; operador lê apenas as próprias solicitações.
+      allow read: if isManagement() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      // Criação: qualquer autenticado, desde que seja o próprio userId.
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      // Gestor aprova/recusa; operador pode cancelar a própria.
+      allow update: if isManagement() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // Qualquer outra coleção: negada por padrão (default-deny).
     match /{document=**} {
       allow read, write: if false;
     }

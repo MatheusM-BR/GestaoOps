@@ -398,6 +398,8 @@ export default function EventoDetailPage() {
     try {
       // Firestore rejeita campos undefined — só incluímos os campos de meio-turno
       // quando realmente é meio-turno.
+      // Freelancers precisam confirmar explicitamente; CLT é confirmado direto.
+      const isFreelancer = op?.contractType === 'freelancer_n1' || op?.contractType === 'freelancer_n2';
       const assignment: EventAssignment = {
         eventId: id,
         operatorId: selectedOperator,
@@ -407,7 +409,7 @@ export default function EventoDetailPage() {
         travelDaysAfter,
         departureDate,
         returnDate,
-        status: 'confirmado',
+        status: isFreelancer ? 'pendente' : 'confirmado',
         isHalfShift,
         onRestDay,
       };

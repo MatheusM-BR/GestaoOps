@@ -111,6 +111,20 @@ export async function removeAssignment(eventId: string, operatorId: string): Pro
   await updateDocument(COLLECTION, eventId, { assignments, status } as Record<string, unknown>);
 }
 
+// Atualiza o status de um assignment (freelancer confirma / recusa).
+export async function updateAssignmentStatus(
+  eventId: string,
+  operatorId: string,
+  status: 'confirmado' | 'cancelado',
+): Promise<void> {
+  const event = await getEventById(eventId);
+  if (!event) throw new Error('Event not found');
+  const assignments = (event.assignments || []).map((a: EventAssignment) =>
+    a.operatorId === operatorId ? { ...a, status } : a,
+  );
+  await updateDocument(COLLECTION, eventId, { assignments } as Record<string, unknown>);
+}
+
 // Expenses
 export async function addExpense(eventId: string, expense: EventExpense): Promise<void> {
   const event = await getEventById(eventId);
