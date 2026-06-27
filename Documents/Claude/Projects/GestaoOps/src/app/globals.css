@@ -1265,6 +1265,16 @@ select.input {
   background: var(--text-muted);
 }
 
+/* Linhas verticais dividindo os dias na matriz da Escala */
+.escala-grid td,
+.escala-grid th {
+  border-right: 1px solid var(--border);
+}
+.escala-grid td:last-child,
+.escala-grid th:last-child {
+  border-right: none;
+}
+
 /* Scrollbar destacada (matriz da Escala): maior e mais clara */
 .thick-scroll {
   scrollbar-width: auto;

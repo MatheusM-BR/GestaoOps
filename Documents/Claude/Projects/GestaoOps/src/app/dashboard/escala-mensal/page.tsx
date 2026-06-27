@@ -420,7 +420,7 @@ export default function EscalaMensalPage() {
       )}
 
       <div className="table-container thick-scroll" style={{ overflowX: 'scroll', overflowY: 'auto', maxHeight: 'calc(100vh - 230px)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
-        <table className="table" style={{ fontSize: '11.5px', borderCollapse: 'collapse', minWidth: `${260 + days.length * 88}px` }}>
+        <table className="table escala-grid" style={{ fontSize: '11.5px', borderCollapse: 'collapse', minWidth: `${260 + days.length * 88}px` }}>
           <thead>
             <tr>
               <th style={{ position: 'sticky', left: 0, top: 0, background: 'var(--bg-surface-elevated)', zIndex: 4, textAlign: 'left', minWidth: '160px' }}>Operador</th>
@@ -436,7 +436,7 @@ export default function EscalaMensalPage() {
                 );
               })}
               {weeks.labels.map((w) => (
-                <th key={w} style={{ position: 'sticky', top: 0, zIndex: 3, textAlign: 'center', minWidth: '52px', background: '#EAF3DE', color: '#3B6D11' }}>{w}</th>
+                <th key={w} style={{ position: 'sticky', top: 0, zIndex: 3, textAlign: 'center', minWidth: '52px', background: '#16280c', color: '#9FE1CB' }}>{w}</th>
               ))}
               <th style={{ position: 'sticky', top: 0, zIndex: 3, textAlign: 'center', minWidth: '70px', background: 'var(--bg-surface-elevated)' }}>Mês</th>
             </tr>
@@ -478,7 +478,7 @@ export default function EscalaMensalPage() {
                   </td>
                 );
               })}
-              {weeks.labels.map((w) => <td key={w} style={{ background: '#EAF3DE' }} />)}
+              {weeks.labels.map((w) => <td key={w} style={{ background: '#16280c' }} />)}
               <td />
             </tr>
             {/* Estúdios 1-4 */}
@@ -515,7 +515,7 @@ export default function EscalaMensalPage() {
                     </td>
                   );
                 })}
-                {weeks.labels.map((w) => <td key={w} style={{ background: '#EAF3DE' }} />)}
+                {weeks.labels.map((w) => <td key={w} style={{ background: '#16280c' }} />)}
                 <td />
               </tr>
             ))}
@@ -596,7 +596,7 @@ export default function EscalaMensalPage() {
                     {weeks.labels.map((w, i) => {
                       const wt = weekTotals.get(op.id)?.[i] || 0;
                       return (
-                        <td key={w} style={{ textAlign: 'center', background: '#EAF3DE', color: wt > 0 ? '#3B6D11' : 'rgba(59,109,17,0.4)', fontWeight: 600 }}>
+                        <td key={w} style={{ textAlign: 'center', background: '#16280c', color: wt > 0 ? '#C0DD97' : 'rgba(192,221,151,0.4)', fontWeight: 600 }}>
                           {wt > 0 ? Math.round(wt) : '—'}
                         </td>
                       );
