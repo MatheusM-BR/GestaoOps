@@ -9,7 +9,7 @@ import { Operator, PaymentRules, isOperatorRestDay } from '@/types/operator';
 import { calculateOperatorPayment, calculatePanelShiftValue } from '@/lib/payment-engine';
 import { Holiday } from '@/types/payment';
 import { getScheduleNotes, setScheduleNote, deleteScheduleNote } from '@/services/scheduleNotes';
-import { getPanelShifts, setPanelShift, deletePanelShift, PanelShift, TURNO_PRESET } from '@/services/panelShifts';
+import { getPanelShifts, setPanelShift, deletePanelShift, PanelShift } from '@/services/panelShifts';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, addMonths, subMonths, startOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, X, Monitor, Users, MapPin, Clock } from 'lucide-react';
@@ -962,7 +962,11 @@ function ExternalPicker({
   );
 }
 
-/* Box de turno do operador de painel: 1º Turno, 2º Turno ou horário manual. */
+/* Box de turno do operador de painel.
+ * 1º Turno: início automático dos leilões → hora da troca (exitTime).
+ * 2º Turno: hora da troca (entryTime) → fim automático dos leilões.
+ * Manual: entrada e saída livres.
+ */
 function PanelShiftPicker({
   entry, exit, shiftType: initialShiftType, assigned, coveredCount, onSave, onRemove, onClose,
 }: {
@@ -975,39 +979,43 @@ function PanelShiftPicker({
   onRemove: () => void;
   onClose: () => void;
 }) {
+  // Deriva a hora da troca da entrada salva (se já escalado).
+  const savedTroca = initialShiftType === '1T' ? (exit || '') : initialShiftType === '2T' ? (entry || '') : '';
+
   const [mode, setMode] = useState<'1T' | '2T' | 'manual' | null>(initialShiftType || null);
-  const [start, setStart] = useState(entry || '');
-  const [end, setEnd] = useState(exit || '');
+  const [troca, setTroca] = useState(savedTroca); // hora da troca para 1T/2T
+  const [manStart, setManStart] = useState(entry || '');
+  const [manEnd, setManEnd] = useState(exit || '');
 
-  const handleSelect = (m: '1T' | '2T') => {
+  const handleModeChange = (m: '1T' | '2T' | 'manual') => {
     setMode(m);
-    setStart(TURNO_PRESET[m].entry);
-    setEnd(TURNO_PRESET[m].exit);
+    if (m !== 'manual' && !troca) setTroca('');
   };
 
-  const handleManual = () => {
-    setMode('manual');
-    if (!start) setStart('07:00');
-    if (!end) setEnd('13:00');
-  };
-
-  const canSave = mode !== null && (mode !== 'manual' || (start && end));
+  const canSave = mode !== null && (
+    (mode === '1T' && !!troca) ||
+    (mode === '2T' && !!troca) ||
+    (mode === 'manual' && !!manStart && !!manEnd)
+  );
 
   const save = () => {
     if (!mode) return;
-    onSave(start, end, mode);
+    if (mode === '1T') onSave('', troca, '1T');        // entra com leilão, sai na troca
+    else if (mode === '2T') onSave(troca, '', '2T');   // entra na troca, sai com leilão
+    else onSave(manStart, manEnd, 'manual');
   };
 
   const btnBase: React.CSSProperties = {
     flex: 1, fontSize: '11px', fontWeight: 600, padding: '7px 4px', borderRadius: 'var(--radius-md)',
     border: '1.5px solid var(--border)', background: 'transparent', cursor: 'pointer', transition: 'all 0.12s',
+    textAlign: 'center' as const, lineHeight: 1.3,
   };
 
   return (
     <div
       onClick={(e) => e.stopPropagation()}
       style={{
-        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '230px',
+        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '235px',
         background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
         boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: '10px',
       }}
@@ -1021,37 +1029,54 @@ function PanelShiftPicker({
       <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
         <button
           style={{ ...btnBase, borderColor: mode === '1T' ? '#2F6FED' : 'var(--border)', background: mode === '1T' ? 'rgba(47,111,237,0.12)' : 'transparent', color: mode === '1T' ? '#2F6FED' : 'var(--text-secondary)' }}
-          onClick={() => handleSelect('1T')}
+          onClick={() => handleModeChange('1T')}
         >
           1º Turno
-          <div style={{ fontSize: '9px', fontWeight: 400, opacity: 0.8 }}>{TURNO_PRESET['1T'].entry}–{TURNO_PRESET['1T'].exit}</div>
+          <div style={{ fontSize: '9px', fontWeight: 400, opacity: 0.8 }}>início → troca</div>
         </button>
         <button
           style={{ ...btnBase, borderColor: mode === '2T' ? '#7C3AED' : 'var(--border)', background: mode === '2T' ? 'rgba(124,58,237,0.12)' : 'transparent', color: mode === '2T' ? '#7C3AED' : 'var(--text-secondary)' }}
-          onClick={() => handleSelect('2T')}
+          onClick={() => handleModeChange('2T')}
         >
           2º Turno
-          <div style={{ fontSize: '9px', fontWeight: 400, opacity: 0.8 }}>{TURNO_PRESET['2T'].entry}–{TURNO_PRESET['2T'].exit}</div>
+          <div style={{ fontSize: '9px', fontWeight: 400, opacity: 0.8 }}>troca → fim</div>
         </button>
         <button
           style={{ ...btnBase, borderColor: mode === 'manual' ? 'var(--primary)' : 'var(--border)', background: mode === 'manual' ? 'var(--primary-light)' : 'transparent', color: mode === 'manual' ? 'var(--primary)' : 'var(--text-muted)' }}
-          onClick={handleManual}
+          onClick={() => handleModeChange('manual')}
         >
-          <Clock size={11} style={{ marginBottom: '2px' }} />
+          <Clock size={11} />
           <div style={{ fontSize: '9px' }}>Manual</div>
         </button>
       </div>
 
-      {/* Inputs só no modo manual */}
+      {/* Input da hora da troca para 1T e 2T */}
+      {(mode === '1T' || mode === '2T') && (
+        <div className="input-group" style={{ margin: '0 0 10px' }}>
+          <label style={{ fontSize: '11px' }}>
+            {mode === '1T' ? 'Hora da troca (saída)' : 'Hora da troca (entrada)'}
+          </label>
+          <input
+            className="input"
+            type="time"
+            value={troca}
+            onChange={(e) => setTroca(e.target.value)}
+            style={{ fontSize: '12px', padding: '6px 8px' }}
+            autoFocus
+          />
+        </div>
+      )}
+
+      {/* Inputs livres para Manual */}
       {mode === 'manual' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
           <div className="input-group" style={{ margin: 0 }}>
             <label style={{ fontSize: '11px' }}>Início</label>
-            <input className="input" type="time" value={start} onChange={(e) => setStart(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+            <input className="input" type="time" value={manStart} onChange={(e) => setManStart(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
           </div>
           <div className="input-group" style={{ margin: 0 }}>
             <label style={{ fontSize: '11px' }}>Fim</label>
-            <input className="input" type="time" value={end} onChange={(e) => setEnd(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+            <input className="input" type="time" value={manEnd} onChange={(e) => setManEnd(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
           </div>
         </div>
       )}
