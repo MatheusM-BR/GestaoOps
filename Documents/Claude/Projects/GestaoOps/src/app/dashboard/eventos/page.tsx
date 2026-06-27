@@ -42,6 +42,9 @@ export default function EventosPage() {
   const [loadError, setLoadError] = useState('');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncResult, setSyncResult] = useState<{ updated: number; skipped: number } | null>(null);
+  // Intervalo de sincronização de horários (padrão: 30 dias antes a 30 dias após hoje).
+  const [syncStart, setSyncStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return format(d, 'yyyy-MM-dd'); });
+  const [syncEnd, setSyncEnd] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return format(d, 'yyyy-MM-dd'); });
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set());
 
@@ -378,33 +381,45 @@ export default function EventosPage() {
     }
     setSyncLoading(true);
     setSyncResult(null);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
 
-    // Filtra eventos passados que vieram da API (têm rematewebId)
-    const pastApiEvents = events.filter((e) => {
+    // Filtra eventos da API (têm rematewebId) cuja data está no intervalo escolhido.
+    const start = syncStart ? new Date(syncStart + 'T00:00:00') : null;
+    const end = syncEnd ? new Date(syncEnd + 'T23:59:59') : null;
+    const targetEvents = events.filter((e) => {
+      if (e.rematewebId == null) return false;
       const d = toDate(e.date);
-      return e.rematewebId != null && d < today;
+      if (start && d < start) return false;
+      if (end && d > end) return false;
+      return true;
     });
 
     let updated = 0;
     let skipped = 0;
+    const NEAR = 60000; // 1 min de tolerância
 
-    for (const evt of pastApiEvents) {
+    for (const evt of targetEvents) {
       try {
         const apiData = await fetchAuctionById(Number(evt.rematewebId));
-        if (!apiData?.endDate) { skipped++; continue; }
+        if (!apiData) { skipped++; continue; }
 
-        const newEndDate = parseRobustDate(apiData.endDate);
-        const currentEnd = evt.endDate ? toDate(evt.endDate) : null;
-
-        // Só atualiza se a data de fim mudou ou estava ausente
-        if (currentEnd && Math.abs(newEndDate.getTime() - currentEnd.getTime()) < 60000) {
-          skipped++; continue;
+        const patch: Partial<GestaoEvent> = {};
+        // Início
+        if (apiData.date) {
+          const newStart = parseRobustDate(apiData.date);
+          const curStart = evt.date ? toDate(evt.date) : null;
+          if (!curStart || Math.abs(newStart.getTime() - curStart.getTime()) >= NEAR) patch.date = newStart;
+        }
+        // Fim (encerramento)
+        if (apiData.endDate) {
+          const newEnd = parseRobustDate(apiData.endDate);
+          const curEnd = evt.endDate ? toDate(evt.endDate) : null;
+          if (!curEnd || Math.abs(newEnd.getTime() - curEnd.getTime()) >= NEAR) patch.endDate = newEnd;
         }
 
-        await updateEvent(evt.id, { endDate: newEndDate } as Partial<GestaoEvent>);
-        setEvents((prev) => prev.map((e) => e.id === evt.id ? { ...e, endDate: newEndDate } : e));
+        if (Object.keys(patch).length === 0) { skipped++; continue; }
+
+        await updateEvent(evt.id, patch);
+        setEvents((prev) => prev.map((e) => e.id === evt.id ? { ...e, ...patch } : e));
         updated++;
       } catch {
         skipped++;
@@ -413,7 +428,7 @@ export default function EventosPage() {
 
     setSyncResult({ updated, skipped });
     setSyncLoading(false);
-    if (updated > 0) showToast(`${updated} evento(s) atualizados com horário de fim da API.`);
+    if (updated > 0) showToast(`${updated} evento(s) com horários (início/fim) atualizados da API.`);
     else showToast(`Nenhuma alteração necessária (${skipped} já atualizados ou sem dados).`, 'info');
   };
 
@@ -547,18 +562,18 @@ export default function EventosPage() {
             <button className="btn btn-ghost" onClick={() => { setShowManualModal(true); }}>
               <PlusCircle size={16} /> Cadastrar Evento
             </button>
-            <button
-              className="btn btn-ghost"
-              onClick={handleSyncEndDates}
-              disabled={syncLoading}
-              title="Atualiza a data/hora de fim de eventos passados buscando da API RemateWeb"
-            >
-              {syncLoading
-                ? <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />
-                : <RotateCw size={16} />
-              }
-              {syncLoading ? ' Sincronizando...' : ' Sincronizar Encerramento'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }} title="Atualiza início e fim dos eventos no intervalo, buscando da API RemateWeb">
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}><RotateCw size={13} /> Sincronizar horários:</span>
+              <input className="input" type="date" value={syncStart} onChange={(e) => setSyncStart(e.target.value)} style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }} />
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>até</span>
+              <input className="input" type="date" value={syncEnd} onChange={(e) => setSyncEnd(e.target.value)} style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }} />
+              <button className="btn btn-ghost btn-sm" onClick={handleSyncEndDates} disabled={syncLoading} style={{ gap: '5px' }}>
+                {syncLoading
+                  ? <div className="spinner" style={{ width: '13px', height: '13px', borderWidth: '2px' }} />
+                  : <RotateCw size={14} />}
+                {syncLoading ? 'Sincronizando…' : 'Atualizar'}
+              </button>
+            </div>
             <button className="btn btn-primary" onClick={() => { setShowImportModal(true); handleFetchFromAPI(); }}>
               <Download size={16} /> Importar da API
             </button>
