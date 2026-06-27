@@ -45,6 +45,7 @@ export default function EventosPage() {
   // Intervalo de sincronização de horários (padrão: 20 dias antes a 5 dias após hoje).
   const [syncStart, setSyncStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 20); return format(d, 'yyyy-MM-dd'); });
   const [syncEnd, setSyncEnd] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 5); return format(d, 'yyyy-MM-dd'); });
+  const [showSyncBox, setShowSyncBox] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set());
 
@@ -572,6 +573,10 @@ export default function EventosPage() {
         </div>
         {canModify && (
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {/* Ação principal em evidência */}
+            <button className="btn btn-primary" onClick={() => { setShowManualModal(true); }}>
+              <PlusCircle size={16} /> Cadastrar Evento
+            </button>
             <button
               className={`btn ${isEditMode ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => {
@@ -582,22 +587,39 @@ export default function EventosPage() {
             >
               {isEditMode ? 'Sair do Modo de Edição' : 'Modo de Edição'}
             </button>
-            <button className="btn btn-ghost" onClick={() => { setShowManualModal(true); }}>
-              <PlusCircle size={16} /> Cadastrar Evento
-            </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }} title="Atualiza início e fim dos eventos no intervalo, buscando da API RemateWeb">
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}><RotateCw size={13} /> Sincronizar horários:</span>
-              <input className="input" type="date" value={syncStart} onChange={(e) => setSyncStart(e.target.value)} style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }} />
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>até</span>
-              <input className="input" type="date" value={syncEnd} onChange={(e) => setSyncEnd(e.target.value)} style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }} />
-              <button className="btn btn-ghost btn-sm" onClick={handleSyncEndDates} disabled={syncLoading} style={{ gap: '5px' }}>
-                {syncLoading
-                  ? <div className="spinner" style={{ width: '13px', height: '13px', borderWidth: '2px' }} />
-                  : <RotateCw size={14} />}
-                {syncLoading ? 'Sincronizando…' : 'Atualizar'}
+
+            {/* Sincronizar horários: botão discreto + box flutuante */}
+            <div style={{ position: 'relative' }}>
+              <button className="btn btn-ghost btn-icon" onClick={() => setShowSyncBox((v) => !v)} title="Sincronizar horários com a API" aria-label="Sincronizar horários">
+                {syncLoading ? <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} /> : <RotateCw size={16} />}
               </button>
+              {showSyncBox && (
+                <>
+                  <div onClick={() => setShowSyncBox(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                  <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 41, minWidth: '260px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: '12px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <RotateCw size={13} /> Sincronizar horários
+                    </div>
+                    <div className="input-group" style={{ marginBottom: '8px' }}>
+                      <label style={{ fontSize: '11px' }}>De</label>
+                      <input className="input" type="date" value={syncStart} onChange={(e) => setSyncStart(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+                    </div>
+                    <div className="input-group" style={{ marginBottom: '10px' }}>
+                      <label style={{ fontSize: '11px' }}>Até</label>
+                      <input className="input" type="date" value={syncEnd} onChange={(e) => setSyncEnd(e.target.value)} style={{ fontSize: '12px', padding: '6px 8px' }} />
+                    </div>
+                    <button className="btn btn-primary btn-sm" style={{ width: '100%', gap: '6px' }} onClick={async () => { await handleSyncEndDates(); }} disabled={syncLoading}>
+                      {syncLoading ? <div className="spinner" style={{ width: '13px', height: '13px', borderWidth: '2px' }} /> : <RotateCw size={14} />}
+                      {syncLoading ? 'Sincronizando…' : 'Sincronizar'}
+                    </button>
+                    <p style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '6px' }}>Atualiza início e fim dos eventos do intervalo (API RemateWeb).</p>
+                  </div>
+                </>
+              )}
             </div>
-            <button className="btn btn-primary" onClick={() => { setShowImportModal(true); handleFetchFromAPI(); }}>
+
+            {/* Importar: discreto */}
+            <button className="btn btn-ghost" onClick={() => { setShowImportModal(true); handleFetchFromAPI(); }}>
               <Download size={16} /> Importar da API
             </button>
           </div>
