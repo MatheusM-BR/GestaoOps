@@ -566,10 +566,6 @@ export default function EventosPage() {
       <div className="page-header">
         <div>
           <h1>Eventos e Leilões</h1>
-          <p>
-            {sortedEvents.length} de {events.length} evento(s)
-            {(dateFrom || dateTo) ? ' no período filtrado' : ' no total'}
-          </p>
         </div>
         {canModify && (
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
