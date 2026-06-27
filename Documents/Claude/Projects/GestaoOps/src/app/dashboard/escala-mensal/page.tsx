@@ -214,15 +214,16 @@ export default function EscalaMensalPage() {
     return m;
   }, [events]);
 
-  // Eventos de estúdio por dia (para o dropdown das linhas Estúdio 1-4).
-  const studioEventsByDay = useMemo(() => {
+  // TODOS os eventos do dia (para os dropdowns de Estúdio e Externas — pode
+  // definir o tipo aqui mesmo, inclusive de eventos ainda sem tipo).
+  const dayPickerEvents = useMemo(() => {
     const m = new Map<string, EventWithId[]>();
     for (const e of events) {
-      if (!isStudioEvent(e)) continue;
       const k = dayKey(toDate(e.date));
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push(e);
     }
+    for (const arr of m.values()) arr.sort((a, b) => toDate(a.date).getTime() - toDate(b.date).getTime());
     return m;
   }, [events]);
 
@@ -248,7 +249,7 @@ export default function EscalaMensalPage() {
     const isHere = (evt.studioName || '') === slot;
     const patch: Partial<GestaoEvent> = isHere
       ? { studioName: '' }                          // tira do estúdio (mantém o tipo)
-      : { studioName: slot, operationType: 'estudio' }; // define estúdio = vira evento de estúdio
+      : { studioName: slot, operationType: 'estudio', needsPlanning: false }; // vira estúdio (interno, sem planejamento)
     setEvents((prev) => prev.map((e) => e.id === evt.id ? { ...e, ...patch } : e));
     setSaving(true);
     try {
@@ -256,6 +257,26 @@ export default function EscalaMensalPage() {
     } catch (err) {
       console.error(err);
       showToast('Erro ao definir estúdio. Recarregando…', 'error');
+      await loadData();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Define/retira um leilão como EXTERNO (linha Externas): grava no evento e
+  // cria alerta de planejamento (needsPlanning).
+  const assignExternal = async (evt: EventWithId) => {
+    const isExt = evt.operationType === 'externo';
+    const patch: Partial<GestaoEvent> = isExt
+      ? { operationType: null, needsPlanning: false }                       // tira de externa
+      : { operationType: 'externo', studioName: '', needsPlanning: true };  // externa + alerta de planejamento
+    setEvents((prev) => prev.map((e) => e.id === evt.id ? { ...e, ...patch } : e));
+    setSaving(true);
+    try {
+      await updateEvent(evt.id, patch);
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao definir externa. Recarregando…', 'error');
       await loadData();
     } finally {
       setSaving(false);
@@ -435,13 +456,25 @@ export default function EscalaMensalPage() {
                 const dow = getDay(d);
                 const red = dow === 0 || dow === 6 || isHoliday(d);
                 const exts = externalByDay.get(k) || [];
+                const isOpen = openCell?.rowId === 'externas' && openCell?.key === k;
                 return (
-                  <td key={k} style={{ verticalAlign: 'middle', textAlign: 'center', padding: '3px 4px', background: exts.length ? 'rgba(216,90,48,0.10)' : red ? 'rgba(239,68,68,0.05)' : undefined }}>
+                  <td
+                    key={k}
+                    onClick={() => canEdit && setOpenCell(isOpen ? null : { rowId: 'externas', key: k })}
+                    style={{ position: 'relative', verticalAlign: 'middle', textAlign: 'center', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default', background: exts.length ? 'rgba(216,90,48,0.10)' : red ? 'rgba(239,68,68,0.05)' : undefined, outline: isOpen ? '2px solid #993C1D' : undefined }}
+                  >
                     {exts.map((e) => (
                       <div key={e.id} title={`${e.title}${e.city ? ' — ' + e.city : ''}`} style={{ fontSize: '10px', fontWeight: 500, lineHeight: 1.2, marginBottom: '2px' }}>
                         {e.title.replace(/^LIVE \| /, '')}{e.city ? <span style={{ color: 'var(--text-muted)' }}> · {e.city}</span> : null}
                       </div>
                     ))}
+                    {isOpen && (
+                      <ExternalPicker
+                        dayEvents={dayPickerEvents.get(k) || []}
+                        onToggle={(e) => assignExternal(e)}
+                        onClose={() => setOpenCell(null)}
+                      />
+                    )}
                   </td>
                 );
               })}
@@ -473,7 +506,7 @@ export default function EscalaMensalPage() {
                       ))}
                       {isOpen && (
                         <StudioPicker
-                          dayStudioEvents={studioEventsByDay.get(k) || []}
+                          dayStudioEvents={dayPickerEvents.get(k) || []}
                           slot={slot}
                           onToggle={(e) => assignStudioSlot(e, slot)}
                           onClose={() => setOpenCell(null)}
@@ -685,16 +718,17 @@ function StudioPicker({
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>Leilões de estúdio · {slot}</span>
+        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>Definir em {slot}</span>
         <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} style={{ padding: '2px' }}><X size={13} /></button>
       </div>
       {dayStudioEvents.length === 0 ? (
-        <p style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '6px 0' }}>Nenhum leilão de estúdio neste dia.</p>
+        <p style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '6px 0' }}>Nenhum evento neste dia.</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '220px', overflowY: 'auto' }}>
           {dayStudioEvents.map((evt) => {
             const here = (evt.studioName || '') === slot;
             const elsewhere = !!evt.studioName && !here;
+            const typeLabel = evt.operationType === 'externo' ? 'externo' : elsewhere ? `já em ${evt.studioName}` : evt.operationType === 'estudio' ? 'estúdio' : 'sem tipo';
             return (
               <label key={evt.id} style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11.5px', cursor: 'pointer', padding: '4px 6px', borderRadius: 'var(--radius-sm)', background: here ? 'var(--primary-light)' : 'var(--bg-surface-elevated)' }}>
                 <input type="checkbox" checked={here} onChange={() => onToggle(evt)} />
@@ -703,7 +737,7 @@ function StudioPicker({
                     {evt.title.replace(/^LIVE \| /, '')}
                   </span>
                   <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                    {format(toDate(evt.date), 'HH:mm')}{elsewhere ? ` · já em ${evt.studioName}` : ''}
+                    {format(toDate(evt.date), 'HH:mm')} · {typeLabel}
                   </span>
                 </span>
               </label>
@@ -711,6 +745,55 @@ function StudioPicker({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/* Dropdown da célula Externas: define eventos do dia como EXTERNOS (+ planejamento). */
+function ExternalPicker({
+  dayEvents, onToggle, onClose,
+}: {
+  dayEvents: EventWithId[];
+  onToggle: (evt: EventWithId) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'absolute', zIndex: 30, marginTop: '4px', left: 0, minWidth: '230px',
+        background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: '8px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>Definir como externa</span>
+        <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} style={{ padding: '2px' }}><X size={13} /></button>
+      </div>
+      {dayEvents.length === 0 ? (
+        <p style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '6px 0' }}>Nenhum evento neste dia.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '220px', overflowY: 'auto' }}>
+          {dayEvents.map((evt) => {
+            const isExt = evt.operationType === 'externo';
+            const typeLabel = isExt ? 'externo' : evt.studioName ? `estúdio (${evt.studioName})` : evt.operationType === 'estudio' ? 'estúdio' : 'sem tipo';
+            return (
+              <label key={evt.id} style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11.5px', cursor: 'pointer', padding: '4px 6px', borderRadius: 'var(--radius-sm)', background: isExt ? 'rgba(216,90,48,0.12)' : 'var(--bg-surface-elevated)' }}>
+                <input type="checkbox" checked={isExt} onChange={() => onToggle(evt)} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    {evt.title.replace(/^LIVE \| /, '')}
+                  </span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                    {format(toDate(evt.date), 'HH:mm')}{evt.city ? ` · ${evt.city}` : ''} · {typeLabel}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+      <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>Marcar = define externo e cria alerta de planejamento.</p>
     </div>
   );
 }
