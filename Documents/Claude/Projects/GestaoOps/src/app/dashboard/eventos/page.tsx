@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { fetchAllAuctions, RemateAuction, hasValidToken, getToken, parseRobustDate } from '@/services/remateweb-api';
+import { fetchAllAuctions, fetchAuctionById, RemateAuction, hasValidToken, getToken, parseRobustDate } from '@/services/remateweb-api';
 import { getEvents, createEvent, deleteEvent, updateEvent } from '@/services/events';
 import { GestaoEvent, OperationType, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, EventService, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration, eventStatusBadge, hasEventOccurred } from '@/types/event';
 import { getDocument, getCollection } from '@/lib/firestore';
@@ -396,15 +396,27 @@ export default function EventosPage() {
 
     let skipped = 0;
     try {
-      // 1 busca EM LOTE do intervalo (paginada/paralela) em vez de N chamadas
-      // individuais — evita dezenas de round-trips serializados.
-      const { auctions } = await fetchAllAuctions('date', 1, syncStart || undefined, syncEnd || undefined);
-      const byId = new Map(auctions.map((a) => [a.id, a]));
+      // Busca SÓ os eventos do intervalo, por ID, em paralelo com concorrência
+      // limitada. (Buscar o catálogo inteiro via /api/auction paginado é inviável:
+      // a API ignora o filtro de data no total e páginas profundas dão 500/timeout.)
+      const CONCURRENCY = 6;
+      const fetched: { evt: GestaoEvent & { id: string }; apiData: RemateAuction | null }[] = [];
+      let idx = 0;
+      const worker = async () => {
+        while (idx < targetEvents.length) {
+          const evt = targetEvents[idx++];
+          try {
+            fetched.push({ evt, apiData: await fetchAuctionById(Number(evt.rematewebId)) });
+          } catch {
+            fetched.push({ evt, apiData: null });
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targetEvents.length) }, worker));
 
       // Monta os patches localmente (sem rede).
       const patches: { id: string; patch: Partial<GestaoEvent> }[] = [];
-      for (const evt of targetEvents) {
-        const apiData = byId.get(Number(evt.rematewebId));
+      for (const { evt, apiData } of fetched) {
         if (!apiData) { skipped++; continue; }
         const patch: Partial<GestaoEvent> = {};
         if (apiData.date) {
