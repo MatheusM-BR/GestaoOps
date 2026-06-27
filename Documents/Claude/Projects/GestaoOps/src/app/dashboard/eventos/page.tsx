@@ -241,38 +241,40 @@ export default function EventosPage() {
     setImportLoading(true);
     try {
       const selected = remateAuctions.filter((a) => selectedImports.has(a.id));
-      for (const auction of selected) {
-        await createEvent({
-          rematewebId: auction.id,
-          title: auction.title,
-          date: parseRobustDate(auction.date),
-          endDate: parseRobustDate(auction.endDate),
-          operationType: null,
-          studioId: null,
-          studioName: null,
-          city: auction.city || '',
-          state: auction.state || '',
-          place: auction.place || '',
-          channelName: auction.channelName || '',
-          organizationName: auction.organizationName || '',
-          revenue: 0,
-          actualRevenue: 0,
-          status: 'pendente',
-          commercialIntermediary: '',
-          contractInfo: '',
-          company: '',
-          observation: '',
-          financialCode: auction.financialCode || '',
-          services: [],
-          assignments: [],
-          expenses: [],
-          closing: null,
-          needsPlanning: false,
-        });
-      }
+      // Cria em PARALELO (era em série, lento para muitos leilões).
+      const results = await Promise.allSettled(selected.map((auction) => createEvent({
+        rematewebId: auction.id,
+        title: auction.title,
+        date: parseRobustDate(auction.date),
+        endDate: parseRobustDate(auction.endDate),
+        operationType: null,
+        studioId: null,
+        studioName: null,
+        city: auction.city || '',
+        state: auction.state || '',
+        place: auction.place || '',
+        channelName: auction.channelName || '',
+        organizationName: auction.organizationName || '',
+        revenue: 0,
+        actualRevenue: 0,
+        status: 'pendente',
+        commercialIntermediary: '',
+        contractInfo: '',
+        company: '',
+        observation: '',
+        financialCode: auction.financialCode || '',
+        services: [],
+        assignments: [],
+        expenses: [],
+        closing: null,
+        needsPlanning: false,
+      })));
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const fail = results.length - ok;
       setShowImportModal(false);
       setSelectedImports(new Set());
-      showToast(`${selected.length} leilão(ões) importado(s) com sucesso!`);
+      if (fail > 0) showToast(`${ok} importado(s), ${fail} falharam.`, fail === results.length ? 'error' : 'info');
+      else showToast(`${ok} leilão(ões) importado(s) com sucesso!`);
       await loadData();
     } catch (err) {
       console.error(err);

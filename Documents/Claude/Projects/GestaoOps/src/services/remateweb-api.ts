@@ -199,16 +199,11 @@ export async function fetchAuctions(
     'size': String(pageSize),
   };
 
-  if (startDate) {
-    params['vmFields.startDate'] = startDate;
-    params['startDate'] = startDate;
-    params['StartDate'] = startDate;
-  }
-  if (endDate) {
-    params['vmFields.endDate'] = endDate;
-    params['endDate'] = endDate;
-    params['EndDate'] = endDate;
-  }
+  // A API filtra por data via os params PascalCase `Date` (de) e `EndDate` (até)
+  // — confirmado no swagger e testado ao vivo. Os nomes startDate/endDate eram
+  // ignorados pelo servidor, fazendo a busca trazer o catálogo inteiro.
+  if (startDate) params['Date'] = startDate;
+  if (endDate) params['EndDate'] = endDate;
 
   const raw = await apiGet<unknown>('/api/auction', params);
   const auctions = extractAuctions(raw);
