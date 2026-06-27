@@ -101,6 +101,30 @@ function findHourRange(hourRanges: HourRange[], hours: number): HourRange | unde
 }
 
 /**
+ * Valor do operador de PAINEL por TURNO (não por evento). Soma as durações que
+ * ele cobre no dia — cada evento já recortado no horário de troca quando é meio
+ * turno (calculateAssignmentDuration) — e aplica UMA faixa de horas sobre o total.
+ * Assim um operador que cobre vários leilões no turno recebe 1 valor; e um evento
+ * que cruza a troca é rateado proporcionalmente entre os dois operadores (cada um
+ * só soma a parte do seu turno).
+ */
+export function calculatePanelShiftValue(
+  segments: { start: Date; end: Date; assignment: { isHalfShift?: boolean; halfShiftType?: 'primeiro' | 'segundo'; shiftTime?: string } }[],
+  rules: PaymentRules | null | undefined,
+  isSpecialDay: boolean,
+  onRestDay: boolean,
+  restDayRules?: PaymentRules | null,
+): { value: number; durationMinutes: number } {
+  let totalMin = 0;
+  for (const s of segments) totalMin += calculateAssignmentDuration(toSafeDate(s.start), toSafeDate(s.end), s.assignment);
+  const hours = totalMin / 60;
+  const table = (onRestDay && restDayRules?.hourRanges?.length) ? restDayRules : rules;
+  const range = table ? findHourRange(table.hourRanges || [], hours) : undefined;
+  const value = range ? (isSpecialDay ? range.weekendHolidayValue : range.weekdayValue) : 0;
+  return { value, durationMinutes: totalMin };
+}
+
+/**
  * Determina se uma data corresponde a um fim de semana (Sábado/Domingo) ou feriado.
  */
 export function isWeekendOrHoliday(date: Date, holidays: Holiday[]): { isWeekend: boolean; isHoliday: boolean } {

@@ -6,7 +6,7 @@ import { getActiveOperators } from '@/services/operators';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { GestaoEvent, EventAssignment } from '@/types/event';
 import { Operator, PaymentRules, isOperatorRestDay } from '@/types/operator';
-import { calculateOperatorPayment } from '@/lib/payment-engine';
+import { calculateOperatorPayment, calculatePanelShiftValue } from '@/lib/payment-engine';
 import { Holiday } from '@/types/payment';
 import { getScheduleNotes, setScheduleNote, deleteScheduleNote } from '@/services/scheduleNotes';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, addMonths, subMonths, startOfWeek } from 'date-fns';
@@ -286,10 +286,21 @@ export default function EscalaMensalPage() {
   // Grade enriquecida (operador → dia → escalas com valor) + total do mês por
   // operador. Tudo computado UMA vez por mudança de dados — sem custo por render.
   type Cell = { evt: EventWithId; a: EventAssignment; value: number; isReal: boolean };
-  const { enrichedGrid, monthTotals, weekTotals } = useMemo(() => {
+  type PanelSeg = { start: Date; end: Date; assignment: EventAssignment };
+  const { enrichedGrid, monthTotals, weekTotals, panelDayValues } = useMemo(() => {
     const eg = new Map<string, Map<string, Cell[]>>();
     const totals = new Map<string, number>();
     const wTotals = new Map<string, number[]>(); // opId → valor por índice de semana
+    const panelVals = new Map<string, Map<string, number>>();   // painel: opId → dia → valor do turno
+    const panelSegs = new Map<string, Map<string, PanelSeg[]>>(); // painel: opId → dia → segmentos
+
+    const addTotal = (opId: string, d: Date, v: number) => {
+      if (d < monthStart || d > monthEnd) return;
+      totals.set(opId, (totals.get(opId) || 0) + v);
+      if (!wTotals.has(opId)) wTotals.set(opId, new Array(weeks.labels.length).fill(0));
+      wTotals.get(opId)![weeks.indexOf(d)] += v;
+    };
+
     for (const e of events) {
       const d = toDate(e.date);
       const k = dayKey(d);
@@ -300,27 +311,47 @@ export default function EscalaMensalPage() {
         const dm = eg.get(a.operatorId)!;
         if (!dm.has(k)) dm.set(k, []);
         dm.get(k)!.push({ evt: e, a, value, isReal });
-        // Totais contam estúdio/externo (não retransmissão, que não escala equipe).
-        if (e.operationType !== 'retransmissao' && d >= monthStart && d <= monthEnd) {
-          totals.set(a.operatorId, (totals.get(a.operatorId) || 0) + value);
-          if (!wTotals.has(a.operatorId)) wTotals.set(a.operatorId, new Array(weeks.labels.length).fill(0));
-          wTotals.get(a.operatorId)![weeks.indexOf(d)] += value;
+
+        if (e.operationType === 'retransmissao') continue; // não escala equipe / não custa
+
+        if (op && isPanelOperator(op)) {
+          // Painel: acumula segmentos do dia para calcular UM valor por turno depois.
+          if (!panelSegs.has(a.operatorId)) panelSegs.set(a.operatorId, new Map());
+          const sm = panelSegs.get(a.operatorId)!;
+          if (!sm.has(k)) sm.set(k, []);
+          sm.get(k)!.push({ start: d, end: toDate(e.endDate || e.date), assignment: a });
+        } else {
+          addTotal(a.operatorId, d, value); // demais: por evento
         }
       }
     }
+
+    // Operação de Painel: 1 valor por TURNO/dia (duração coberta × faixa de horas).
+    for (const [opId, dayMap] of panelSegs) {
+      const op = operatorsById.get(opId);
+      const rules = resolveRules(op);
+      for (const [k, segs] of dayMap) {
+        const d = new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)) - 1, Number(k.slice(8, 10)));
+        const dow = d.getDay();
+        const isSpecial = dow === 0 || dow === 6 || isHoliday(d);
+        const onRest = op ? isOperatorRestDay(op, d) : false;
+        const { value } = calculatePanelShiftValue(segs, rules, isSpecial, onRest, rulesN2);
+        if (!panelVals.has(opId)) panelVals.set(opId, new Map());
+        panelVals.get(opId)!.set(k, value);
+        addTotal(opId, d, value);
+      }
+    }
+
     // Atividade "Viagem" (rótulo manual) gera diária fixa de R$200.
     for (const [key, label] of notes) {
       if (label.trim().toLowerCase() !== 'viagem') continue;
       const sep = key.indexOf('|');
       const opId = key.slice(0, sep);
       const d = new Date(key.slice(sep + 1));
-      if (d < monthStart || d > monthEnd) continue;
-      totals.set(opId, (totals.get(opId) || 0) + VIAGEM_VALUE);
-      if (!wTotals.has(opId)) wTotals.set(opId, new Array(weeks.labels.length).fill(0));
-      wTotals.get(opId)![weeks.indexOf(d)] += VIAGEM_VALUE;
+      addTotal(opId, d, VIAGEM_VALUE);
     }
-    return { enrichedGrid: eg, monthTotals: totals, weekTotals: wTotals };
-  }, [events, notes, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd, weeks]);
+    return { enrichedGrid: eg, monthTotals: totals, weekTotals: wTotals, panelDayValues: panelVals };
+  }, [events, notes, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd, weeks, isHoliday, resolveRules, rulesN2]);
 
   // ----- mutations -----
   const toggleAssign = async (evt: EventWithId, op: OperatorWithId) => {
@@ -530,6 +561,7 @@ export default function EscalaMensalPage() {
                 {g.ops.map((op, i) => {
                   const zebra = i % 2 === 1; // quadrantes: linhas alternadas
                   const nameBg = zebra ? 'var(--bg-surface-elevated)' : 'var(--bg-surface)';
+                  const isPanel = isPanelOperator(op); // painel = 1 valor por turno (não por evento)
                   return (
                   <tr key={op.id}>
                     <td style={{ position: 'sticky', left: 0, background: nameBg, zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap', textAlign: 'center' }}>{firstName(op.name)}</td>
@@ -567,12 +599,22 @@ export default function EscalaMensalPage() {
                                 {(a.shiftTime || evt.date) && (
                                   <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{a.shiftTime || format(toDate(evt.date), 'HH:mm')}</div>
                                 )}
-                                <div style={{ fontSize: '10px', fontWeight: 700, color: value === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : studioPending ? '#C77F0A' : isReal ? 'var(--success)' : 'var(--text-secondary)' }} title={rest ? 'Escalado em folga — gera valor extra' : studioPending ? 'Estúdio — valor provisório até a finalização' : undefined}>
-                                  {value === 0 ? 'R$ 0' : `${isReal ? '' : '~'}R$ ${Math.round(value)}`}
-                                </div>
+                                {!isPanel && (
+                                  <div style={{ fontSize: '10px', fontWeight: 700, color: value === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : studioPending ? '#C77F0A' : isReal ? 'var(--success)' : 'var(--text-secondary)' }} title={rest ? 'Escalado em folga — gera valor extra' : studioPending ? 'Estúdio — valor provisório até a finalização' : undefined}>
+                                    {value === 0 ? 'R$ 0' : `${isReal ? '' : '~'}R$ ${Math.round(value)}`}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
+                          {isPanel && cell.length > 0 && (() => {
+                            const pv = panelDayValues.get(op.id)?.get(k) || 0;
+                            return (
+                              <div style={{ fontSize: '10px', fontWeight: 700, color: pv === 0 ? 'var(--text-muted)' : rest ? '#C77F0A' : 'var(--success)' }} title="Valor do turno (cobre os eventos do horário)">
+                                {pv === 0 ? 'R$ 0' : `R$ ${Math.round(pv)}`} <span style={{ fontSize: '8px', fontWeight: 500, color: 'var(--text-muted)' }}>/turno</span>
+                              </div>
+                            );
+                          })()}
                           {note && (
                             <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '70px', margin: '0 auto' }} title={note}>
                               {note}{note.trim().toLowerCase() === 'viagem' ? <span style={{ color: 'var(--accent)', fontStyle: 'normal', fontWeight: 600 }}> · R$ {VIAGEM_VALUE}</span> : null}
