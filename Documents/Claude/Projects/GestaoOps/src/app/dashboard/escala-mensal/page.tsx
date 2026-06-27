@@ -419,7 +419,7 @@ export default function EscalaMensalPage() {
         </div>
       )}
 
-      <div className="table-container" style={{ overflowX: 'scroll', overflowY: 'auto', maxHeight: 'calc(100vh - 230px)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+      <div className="table-container thick-scroll" style={{ overflowX: 'scroll', overflowY: 'auto', maxHeight: 'calc(100vh - 230px)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
         <table className="table" style={{ fontSize: '11.5px', borderCollapse: 'collapse', minWidth: `${260 + days.length * 88}px` }}>
           <thead>
             <tr>
@@ -527,9 +527,12 @@ export default function EscalaMensalPage() {
                     <g.icon size={12} style={{ verticalAlign: 'middle', marginRight: '6px' }} />{g.label}
                   </td>
                 </tr>
-                {g.ops.map((op) => (
+                {g.ops.map((op, i) => {
+                  const zebra = i % 2 === 1; // quadrantes: linhas alternadas
+                  const nameBg = zebra ? 'var(--bg-surface-elevated)' : 'var(--bg-surface)';
+                  return (
                   <tr key={op.id}>
-                    <td style={{ position: 'sticky', left: 0, background: 'var(--bg-surface)', zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap', textAlign: 'center' }}>{firstName(op.name)}</td>
+                    <td style={{ position: 'sticky', left: 0, background: nameBg, zIndex: 1, fontWeight: 500, whiteSpace: 'nowrap', textAlign: 'center' }}>{firstName(op.name)}</td>
                     {days.map((d) => {
                       const k = dayKey(d);
                       const dow = getDay(d);
@@ -546,7 +549,7 @@ export default function EscalaMensalPage() {
                           title={rest ? 'Folga' : undefined}
                           style={{
                             position: 'relative', verticalAlign: 'middle', textAlign: 'center', padding: '3px 4px', cursor: canEdit ? 'pointer' : 'default',
-                            background: cell.length ? (rest ? 'rgba(245,158,11,0.12)' : 'var(--primary-light)') : note ? 'var(--bg-surface-elevated)' : red ? 'rgba(239,68,68,0.05)' : rest ? 'rgba(239,68,68,0.08)' : undefined,
+                            background: cell.length ? (rest ? 'rgba(245,158,11,0.12)' : 'var(--primary-light)') : note ? 'var(--bg-surface-elevated)' : red ? 'rgba(239,68,68,0.05)' : rest ? 'rgba(239,68,68,0.08)' : zebra ? 'rgba(148,163,184,0.05)' : undefined,
                             outline: isOpen ? '2px solid var(--primary)' : undefined,
                           }}
                         >
@@ -604,7 +607,7 @@ export default function EscalaMensalPage() {
                     </td>
                     ); })()}
                   </tr>
-                ))}
+                ); })}
               </FragmentGroup>
             ))}
             {operators.length === 0 && (

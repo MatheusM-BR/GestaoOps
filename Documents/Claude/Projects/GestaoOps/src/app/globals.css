@@ -1265,6 +1265,28 @@ select.input {
   background: var(--text-muted);
 }
 
+/* Scrollbar destacada (matriz da Escala): maior e mais clara */
+.thick-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: var(--text-secondary) var(--bg-surface-elevated);
+}
+.thick-scroll::-webkit-scrollbar {
+  height: 16px;
+  width: 16px;
+}
+.thick-scroll::-webkit-scrollbar-track {
+  background: var(--bg-surface-elevated);
+  border-radius: 8px;
+}
+.thick-scroll::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: 8px;
+  border: 3px solid var(--bg-surface-elevated);
+}
+.thick-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-primary);
+}
+
 /* Small mobile (<=480px) */
 @media (max-width: 480px) {
   .grid-stats {
