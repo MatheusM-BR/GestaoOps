@@ -241,18 +241,10 @@ select.input {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  position: relative;
-  overflow: hidden;
+  transition: border-color var(--transition-fast);
 }
-
-.card-stat::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--primary), var(--accent));
+.card-stat:hover {
+  border-color: var(--text-muted);
 }
 
 .card-stat .stat-label {
@@ -1314,24 +1306,38 @@ select.input {
 }
 
 /* Custom scrollbars for dark mode */
+html {
+  scrollbar-color: var(--text-muted) var(--bg-surface);
+  scrollbar-width: thin;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
   background: var(--bg-surface);
-  border-radius: var(--radius-sm);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-surface-elevated);
+  background: var(--text-muted);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  border: 2px solid var(--bg-surface);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: var(--text-secondary);
+}
+
+/* Dashboard layout: colapsa painel direito em tablets/mobile */
+@media (max-width: 1100px) {
+  .dash-main-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .dash-main-grid > :last-child:not(:first-child) {
+    display: none;
+  }
 }
 
 /* Linhas verticais dividindo os dias na matriz da Escala */

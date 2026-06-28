@@ -17,7 +17,7 @@ import { ptBR } from 'date-fns/locale';
 import {
   Gavel, Users, DollarSign, TrendingUp, Calendar, MapPin, Clock, AlertTriangle,
   ClipboardList, ChevronRight, BarChart2, CheckCircle, Clipboard, LayoutGrid,
-  GripVertical, X, Plus, RotateCcw, Check, Settings2, Target,
+  GripVertical, X, Plus, RotateCcw, Check, Settings2, Target, Radio, Plane,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -61,14 +61,23 @@ function resolveRules(op: OperatorWithId, rFunc: PaymentRules | null, rN1: Payme
 
 // ==================== COMPONENTES BASE ====================
 function StatCard({ label, value, sub, icon: Icon, color = 'var(--primary)' }: { label: string; value: string | number; sub?: string; icon: React.ElementType; color?: string }) {
+  const iconBg =
+    color === 'var(--success)' ? 'rgba(46,204,113,.12)' :
+    color === 'var(--warning)' ? 'rgba(241,196,15,.12)' :
+    color === 'var(--error)' ? 'rgba(239,68,68,.10)' :
+    color === 'var(--accent)' ? 'var(--accent-light)' :
+    color === 'var(--info)' ? 'rgba(121,192,255,.10)' :
+    'var(--primary-light)';
   return (
-    <div className="card-stat">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span className="stat-label">{label}</span>
+    <div className="card-stat" style={{ flexDirection: 'row', alignItems: 'center', gap: '14px', padding: '16px 20px' }}>
+      <div style={{ width: 40, height: 40, borderRadius: 10, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <Icon size={20} style={{ color }} />
       </div>
-      <span className="stat-value">{value}</span>
-      {sub && <span className="stat-change positive">{sub}</span>}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <span className="stat-label">{label}</span>
+        <div className="stat-value" style={{ fontSize: '20px', marginTop: '2px' }}>{value}</div>
+        {sub && <span className="stat-change positive">{sub}</span>}
+      </div>
     </div>
   );
 }
@@ -559,6 +568,8 @@ function moveItem(arr: string[], from: number, to: number): string[] {
   return a;
 }
 
+interface PendItem { label: string; n: number; color: string; icon: React.ElementType }
+
 // ==================== PÁGINA ====================
 export default function DashboardPage() {
   const { profile, user, isManagement } = useAuth();
@@ -679,7 +690,19 @@ export default function DashboardPage() {
 
   const available = allowed.filter((w) => !layout.includes(w.id));
 
+  // Dados do painel direito (management only)
+  const futureEvts = ctx.allEvents.filter((e) => toDate(e.date) >= ctx.now);
+  const todayEvts = ctx.allEvents.filter((e) => isToday(toDate(e.date))).sort((a, b) => toDate(a.date).getTime() - toDate(b.date).getTime());
+  const pendItems: PendItem[] = [
+    { label: 'Sem equipe escalada', n: futureEvts.filter((e) => (e.assignments || []).length === 0 && e.operationType !== 'retransmissao').length, color: 'var(--info)', icon: Users },
+    { label: 'Externos sem planejamento', n: futureEvts.filter((e) => e.needsPlanning && !e.planning).length, color: 'var(--error)', icon: Clipboard },
+    { label: 'Sem receita cadastrada', n: ctx.allEvents.filter((e) => !(e.actualRevenue || e.revenue)).length, color: 'var(--text-muted)', icon: DollarSign },
+    { label: 'Sem tipo definido', n: ctx.allEvents.filter((e) => !e.operationType).length, color: 'var(--warning)', icon: Target },
+  ].filter((i) => i.n > 0);
+  const travelEvts = futureEvts.filter((e) => e.operationType === 'externo').sort((a, b) => toDate(a.date).getTime() - toDate(b.date).getTime()).slice(0, 4);
+
   return (
+    <div className="dash-main-grid" style={{ display: 'grid', gridTemplateColumns: isManagement && ctx ? 'minmax(0,1fr) 236px' : '1fr', gap: '16px', alignItems: 'start' }}>
     <div>
       {/* Barra de ações */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
@@ -753,9 +776,80 @@ export default function DashboardPage() {
           );
         })}
         {layout.length === 0 && (
-          <div className="span-2 empty-state card"><LayoutGrid size={40} style={{ opacity: 0.3, marginBottom: '12px' }} /><h3>Painel vazio</h3><p>Clique em “Personalizar” para adicionar blocos.</p></div>
+          <div className="span-2 empty-state card"><LayoutGrid size={40} style={{ opacity: 0.3, marginBottom: '12px' }} /><h3>Painel vazio</h3><p>Clique em "Personalizar" para adicionar blocos.</p></div>
         )}
       </div>
     </div>
+
+    {isManagement && !editing && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', position: 'sticky', top: '80px' }}>
+          <div className="card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '12px' }}>
+              <Radio size={13} style={{ color: todayEvts.length ? 'var(--error)' : 'var(--text-muted)' }} />
+              <h3 style={{ fontSize: '13px', fontWeight: 600 }}>Operação hoje</h3>
+              {todayEvts.length > 0 && <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-muted)' }}>{todayEvts.length} leilão{todayEvts.length !== 1 ? 'ões' : ''}</span>}
+            </div>
+            {todayEvts.length === 0 ? (
+              <div className="empty-state" style={{ padding: '16px 0' }}>
+                <Calendar size={22} style={{ opacity: 0.3, marginBottom: '6px' }} />
+                <p style={{ fontSize: '12px' }}>Nenhum leilão hoje</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {todayEvts.map((evt) => {
+                  const col = evt.operationType ? (TYPE_COLOR[evt.operationType] || 'var(--text-muted)') : 'var(--text-muted)';
+                  return (
+                    <Link key={evt.id} href={`/dashboard/leiloes/detalhes?id=${evt.id}`} style={{ textDecoration: 'none' }}>
+                      <div style={{ padding: '8px 10px', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', borderLeft: `3px solid ${col}` }}>
+                        <p style={{ fontSize: '12.5px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{evt.title}</p>
+                        <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{format(toDate(evt.date), 'HH:mm')} · {evt.city || 'N/D'}</p>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {pendItems.length > 0 && (
+            <div className="card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '12px' }}>
+                <AlertTriangle size={13} style={{ color: 'var(--warning)' }} />
+                <h3 style={{ fontSize: '13px', fontWeight: 600 }}>Pendências</h3>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {pendItems.map((it) => (
+                  <div key={it.label} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)' }}>
+                    <it.icon size={15} style={{ color: it.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: '12px' }}>{it.label}</span>
+                    <span style={{ fontWeight: 700, fontSize: '15px', color: it.color }}>{it.n}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {travelEvts.length > 0 && (
+            <div className="card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '12px' }}>
+                <Plane size={13} style={{ color: 'var(--accent)' }} />
+                <h3 style={{ fontSize: '13px', fontWeight: 600 }}>Próximas viagens</h3>
+              </div>
+              <div>
+                {travelEvts.map((evt, i) => (
+                  <div key={evt.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 2px', borderBottom: i < travelEvts.length - 1 ? '0.5px solid var(--border)' : 'none' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', maxWidth: '130px', fontSize: '12px' }}>{evt.title}</p>
+                      <p style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>{format(toDate(evt.date), 'dd/MM')}</p>
+                    </div>
+                    <span style={{ color: 'var(--accent)', fontWeight: 600, fontSize: '12px' }}>R$ 200</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+    )}
+  </div>
   );
 }
