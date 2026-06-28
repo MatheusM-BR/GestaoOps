@@ -1,7 +1,7 @@
 export interface Company {
   id: string;
   name: string;
-  code: string;       // sigla curta, ex: "RW", "3M"
+  code: string;       // sigla curta, ex: "RW"
   cnpj?: string;
   color?: string;     // hex para identificação visual
   active: boolean;
