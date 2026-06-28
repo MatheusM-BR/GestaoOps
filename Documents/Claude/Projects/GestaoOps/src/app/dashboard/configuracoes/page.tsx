@@ -88,6 +88,7 @@ export default function ConfiguracoesPage() {
   const [verificationLoading, setVerificationLoading] = useState(false);
   const [verificationLoaded, setVerificationLoaded] = useState(false);
   const [fixingEventId, setFixingEventId] = useState<string | null>(null);
+  const [unassignedEvents, setUnassignedEvents] = useState<Array<{ event: GestaoEvent & { id: string }; services: string[] }>>([]);
 
   // Holidays
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -541,6 +542,55 @@ export default function ConfiguracoesPage() {
     }
   };
 
+  // Mapeamento de nome de serviço → tipo de operação
+  const SERVICE_TYPE_MAP: Record<string, OperationType> = {
+    'operação estúdio': 'estudio',
+    'transmissão estúdio': 'estudio',
+    'transmissão estúdio plus': 'estudio',
+    'cobertura rw estúdio': 'estudio',
+    'programa bora leilão': 'estudio',
+    'programa no leite': 'estudio',
+    'produção canal': 'estudio',
+    'operação externa': 'externo',
+    'transmissão externa': 'externo',
+    'transmissão externa plus': 'externo',
+    'retransmissão': 'retransmissao',
+    'retransmissão plus': 'retransmissao',
+    'live': 'retransmissao',
+  };
+
+  const inferOperationType = (services: { serviceName: string }[]): OperationType | null => {
+    for (const svc of services || []) {
+      const key = svc.serviceName?.toLowerCase().trim() ?? '';
+      if (SERVICE_TYPE_MAP[key]) return SERVICE_TYPE_MAP[key];
+    }
+    return null;
+  };
+
+  const autoClassifyEvents = async () => {
+    setVerificationLoading(true);
+    try {
+      const all = await getEvents();
+      const toClassify = all.filter((ev) => !ev.operationType && (ev.services || []).length > 0);
+      let classified = 0;
+      for (const ev of toClassify) {
+        const inferred = inferOperationType(ev.services || []);
+        if (inferred) {
+          await updateEvent(ev.id!, { operationType: inferred });
+          classified++;
+        }
+      }
+      showToast(`${classified} evento(s) classificado(s) automaticamente.`);
+      // Reload verification list
+      setVerificationLoaded(false);
+      await loadVerification();
+    } catch (err) {
+      console.error(err);
+      showToast('Erro na auto-classificação.', 'error');
+      setVerificationLoading(false);
+    }
+  };
+
   const loadVerification = async () => {
     setVerificationLoading(true);
     try {
@@ -579,6 +629,25 @@ export default function ConfiguracoesPage() {
         return tB - tA;
       });
       setVerificationEvents(issues);
+
+      // Eventos com tipo definido (estúdio ou externo) mas sem operadores escalados
+      const unassigned = all
+        .filter((ev) => (ev.operationType === 'estudio' || ev.operationType === 'externo') && (ev.assignments || []).length === 0)
+        .sort((a, b) => {
+          const tA = a.date instanceof Date ? a.date.getTime()
+            : typeof (a.date as unknown) === 'object' && 'toDate' in (a.date as object)
+              ? (a.date as unknown as { toDate: () => Date }).toDate().getTime() : 0;
+          const tB = b.date instanceof Date ? b.date.getTime()
+            : typeof (b.date as unknown) === 'object' && 'toDate' in (b.date as object)
+              ? (b.date as unknown as { toDate: () => Date }).toDate().getTime() : 0;
+          return tA - tB; // mais antigo primeiro
+        })
+        .map((ev) => ({
+          event: ev as GestaoEvent & { id: string },
+          services: (ev.services || []).map((s) => s.serviceName),
+        }));
+      setUnassignedEvents(unassigned);
+
       setVerificationLoaded(true);
     } catch (err) {
       console.error(err);
@@ -1671,16 +1740,22 @@ export default function ConfiguracoesPage() {
       {/* Verificação de Eventos */}
       {activeTab === 'verificacao' && (
         <div className="animate-in">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '20px', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>Verificação de Eventos</h3>
               <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                 Detecta eventos sem tipo de operação definido ou eventos externos sem diárias de viagem cadastradas.
               </p>
             </div>
-            <button className="btn btn-ghost btn-sm" onClick={() => { setVerificationLoaded(false); loadVerification(); }}>
-              <Settings size={14} /> Recarregar
-            </button>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary btn-sm" onClick={autoClassifyEvents} disabled={verificationLoading}
+                title="Classifica automaticamente por nome do serviço (Transmissão Estúdio → estúdio, Transmissão Externa → externo, etc.)">
+                <Play size={13} /> Auto-classificar
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setVerificationLoaded(false); loadVerification(); }} disabled={verificationLoading}>
+                <Settings size={14} /> Recarregar
+              </button>
+            </div>
           </div>
 
           {verificationLoading ? (
@@ -1776,7 +1851,68 @@ export default function ConfiguracoesPage() {
             </div>
           ) : (
             <div className="card" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-              <p style={{ fontSize: '13px' }}>Clique em <strong>Recarregar</strong> para analisar os eventos.</p>
+              <p style={{ fontSize: '13px' }}>Clique em <strong>Auto-classificar</strong> ou <strong>Recarregar</strong> para analisar os eventos.</p>
+            </div>
+          )}
+
+          {/* Eventos sem escalação */}
+          {verificationLoaded && unassignedEvents.length > 0 && (
+            <div style={{ marginTop: '28px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                <h4 style={{ fontSize: '14px', fontWeight: 600 }}>Eventos sem operadores escalados</h4>
+                <span className="badge badge-warning" style={{ padding: '4px 10px', fontSize: '12px' }}>
+                  {unassignedEvents.length}
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                Estúdio e Externo com tipo definido mas nenhum operador atribuído. Use a planilha de escala para preencher.
+              </p>
+              <div className="table-container">
+                <table className="table" style={{ fontSize: '12.5px' }}>
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Evento</th>
+                      <th>Tipo</th>
+                      <th>Serviços</th>
+                      <th>Cidade</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unassignedEvents.map((u) => {
+                      const ev = u.event;
+                      const evDate = ev.date instanceof Date ? ev.date
+                        : typeof ev.date === 'object' && ev.date !== null && 'toDate' in ev.date
+                          ? (ev.date as unknown as { toDate: () => Date }).toDate()
+                          : new Date(ev.date as unknown as string);
+                      return (
+                        <tr key={ev.id}>
+                          <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                            {format(evDate, 'dd/MM/yyyy (EEE)', { locale: ptBR })}
+                          </td>
+                          <td style={{ fontWeight: 500 }}>{ev.title}</td>
+                          <td>
+                            <span className={`badge ${ev.operationType === 'externo' ? 'badge-primary' : 'badge-accent'}`} style={{ fontSize: '11px' }}>
+                              {ev.operationType ? OPERATION_TYPE_LABELS[ev.operationType] : '—'}
+                            </span>
+                          </td>
+                          <td style={{ color: 'var(--text-secondary)', fontSize: '11.5px' }}>
+                            {u.services.join(', ') || '—'}
+                          </td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: '11.5px' }}>
+                            {ev.city}{ev.state ? `/${ev.state}` : ''}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {verificationLoaded && unassignedEvents.length === 0 && (
+            <div style={{ marginTop: '20px', fontSize: '12px', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <CheckCircle size={14} /> Todos os eventos (estúdio/externo) com tipo definido têm operadores escalados.
             </div>
           )}
         </div>
