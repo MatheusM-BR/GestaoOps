@@ -296,11 +296,17 @@ export default function EventoDetailPage() {
       console.error('Erro ao carregar regras de pagamento padrão:', err);
     }
 
-    // Load companies and cost centers
+    // Load companies and cost centers; pré-seleciona RemateWeb se evento não tiver empresa
     try {
       const [comps, ccs] = await Promise.all([getCompanies(), getCostCenters()]);
       setCompaniesList(comps);
       setCostCentersList(ccs);
+      setCompanyId((prev) => {
+        if (prev) return prev;
+        const rw = comps.find((c) => c.name.toLowerCase().includes('remate'));
+        if (rw) { setCompany(rw.name); return rw.id; }
+        return prev;
+      });
     } catch {}
 
     // Load fiscal settings
