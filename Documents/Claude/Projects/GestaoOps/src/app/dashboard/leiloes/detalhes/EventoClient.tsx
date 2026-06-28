@@ -567,7 +567,9 @@ export default function EventoDetailPage() {
   const planningHotelCost = event.planning?.hotel?.totalCost || 0;
   const planningCost = planningVehicleCost + planningHotelCost;
 
-  // Obter o cálculo de pagamentos dos operadores escalados
+  // Obter o cálculo de pagamentos dos operadores escalados.
+  // Sempre calculamos — mesmo sem regras personalizadas — pois para eventos
+  // externos a diária (R$ 200 padrão) vem do próprio motor de pagamento.
   const teamPayments = (event.assignments || []).map((a) => {
     const op = operators.find((o) => o.id === a.operatorId);
     let rules = (op?.paymentRules?.hourRanges?.length ?? 0) > 0 ? op?.paymentRules : null;
@@ -579,29 +581,38 @@ export default function EventoDetailPage() {
     if (op?.paymentRules && !(op.paymentRules.hourRanges?.length) && rules) {
       rules = { ...rules, ...op.paymentRules, hourRanges: rules.hourRanges };
     }
-    if (rules) {
-      try {
-        const pay = calculateOperatorPayment(event, a, rules, holidays, [], defaultRulesN2, fixedValues);
-        return {
-          operatorId: a.operatorId,
-          operatorName: a.operatorName || op?.name || 'Operador',
-          role: a.role,
-          contractType: op?.contractType || 'N/D',
-          total: pay.totalValue,
-          details: pay
-        };
-      } catch (err) {
-        console.error('Erro ao calcular pagamento:', a.operatorName, err);
-      }
-    }
-    return {
+    // Fallback mínimo: permite calcular diária de externo mesmo sem regras no Firestore
+    const effectiveRules = rules || {
+      hourRanges: [],
+      contractType: op?.contractType || 'freelancer_n1',
+      dailyTravel: 200,
+      dailyTravelMultiple: 300,
+      weekendHolidayBonus: 0,
+      isDefault: true,
       operatorId: a.operatorId,
-      operatorName: a.operatorName || op?.name || 'Operador',
-      role: a.role,
-      contractType: op?.contractType || 'N/D',
-      total: 0,
-      details: null
-    };
+      updatedAt: new Date(),
+    } as any;
+    try {
+      const pay = calculateOperatorPayment(event, a, effectiveRules, holidays, [], defaultRulesN2, fixedValues);
+      return {
+        operatorId: a.operatorId,
+        operatorName: a.operatorName || op?.name || 'Operador',
+        role: a.role,
+        contractType: op?.contractType || 'N/D',
+        total: pay.totalValue,
+        details: pay
+      };
+    } catch (err) {
+      console.error('Erro ao calcular pagamento:', a.operatorName, err);
+      return {
+        operatorId: a.operatorId,
+        operatorName: a.operatorName || op?.name || 'Operador',
+        role: a.role,
+        contractType: op?.contractType || 'N/D',
+        total: 0,
+        details: null
+      };
+    }
   });
   const totalTeamPayments = teamPayments.reduce((s, p) => s + p.total, 0);
 
@@ -1123,7 +1134,18 @@ export default function EventoDetailPage() {
                     })()}
                   </div>
                 </div>
-                <span className={`badge ${a.status === 'confirmado' ? 'badge-success' : 'badge-warning'}`}>{a.status}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flexShrink: 0 }}>
+                  <span className={`badge ${a.status === 'confirmado' ? 'badge-success' : 'badge-warning'}`}>{a.status}</span>
+                  {canViewFinance && (() => {
+                    const pay = teamPayments.find((p) => p.operatorId === a.operatorId);
+                    if (!pay || pay.total === 0) return null;
+                    return (
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--warning)' }} title={pay.details?.ruleApplied || ''}>
+                        R$ {pay.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    );
+                  })()}
+                </div>
                 {canEditEquipe && (
                   <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleRemoveAssignment(a.operatorId)} style={{ color: 'var(--error)' }}>
                     <Trash2 size={14} />
