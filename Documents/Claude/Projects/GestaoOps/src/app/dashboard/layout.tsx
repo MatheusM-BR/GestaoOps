@@ -39,9 +39,8 @@ interface NavItem {
 const managementNav: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Eventos', href: '/dashboard/eventos', icon: Gavel },
-  { label: 'Operadores', href: '/dashboard/operadores', icon: Users, roles: ['admin', 'ceo', 'gestor', 'administrativo', 'financeiro', 'planejamento'] },
-  { label: 'Escala', href: '/dashboard/escala', icon: Calendar },
-  { label: 'Modelo de Escala', href: '/dashboard/escala-mensal', icon: LayoutGrid },
+  { label: 'Operadores', href: '/dashboard/operadores', icon: Users, roles: ['admin'] },
+  { label: 'Escala', href: '/dashboard/escala-mensal', icon: LayoutGrid },
   { label: 'Calendário', href: '/dashboard/calendario', icon: CalendarDays },
   { label: 'Financeiro', href: '/dashboard/financeiro', icon: DollarSign, roles: ['admin', 'ceo', 'financeiro'] },
   { label: 'Exportação', href: '/dashboard/exportacao', icon: FileSpreadsheet, roles: ['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo'] },
@@ -62,7 +61,7 @@ const operatorNav: NavItem[] = [
   { label: 'Downloader', href: '/dashboard/downloader', icon: Download },
 ];
 
-// Nav do Operador de Painel: acessa eventos/escala/modelo/calendário, mas não financeiro/operadores/config.
+// Nav do Operador de Painel: acessa eventos/escala/calendário, mas não financeiro/operadores/config.
 const painelHiddenHrefs = ['/dashboard/operadores', '/dashboard/financeiro', '/dashboard/exportacao', '/dashboard/configuracoes'];
 
 // Papéis de transmissão que recebem acesso a Notificações.
@@ -102,11 +101,10 @@ const ROUTE_GUARDS: { prefix: string; roles: SystemRole[] }[] = [
   { prefix: '/dashboard/configuracoes', roles: ['admin'] },
   { prefix: '/dashboard/exportacao', roles: ['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo'] },
   { prefix: '/dashboard/financeiro', roles: ['admin', 'ceo', 'financeiro'] },
-  { prefix: '/dashboard/operadores', roles: ['admin', 'ceo', 'gestor', 'administrativo', 'financeiro', 'planejamento'] },
+  { prefix: '/dashboard/operadores', roles: ['admin'] },
   { prefix: '/dashboard/eventos', roles: EVENT_ACCESS },
   { prefix: '/dashboard/leiloes', roles: EVENT_ACCESS },
   { prefix: '/dashboard/escala-mensal', roles: ESCALA_ACCESS },
-  { prefix: '/dashboard/escala', roles: EVENT_ACCESS },
   // /dashboard/downloader: sem guard (todos, incluindo freelancers).
   { prefix: '/dashboard/notificacoes', roles: ['admin', 'ceo', 'gestor', 'operador_painel', 'operador_transmissao', 'tecnico'] },
   { prefix: '/dashboard/operacao', roles: ['admin', 'ceo', 'gestor', 'operador_painel', 'administrativo', 'operador_transmissao', 'tecnico'] },

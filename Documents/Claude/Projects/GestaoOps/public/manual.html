@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual da Plataforma GestRW</title>
+<style>
+  :root {
+    --primary: #2F6FED;
+    --accent: #7C3AED;
+    --success: #16a34a;
+    --warning: #d97706;
+    --error: #dc2626;
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.6; }
+
+  /* ── CAPA ── */
+  .cover {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a6e 50%, #2F6FED 100%);
+    color: white; min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 60px 40px;
+    page-break-after: always;
+  }
+  .cover-logo {
+    width: 80px; height: 80px; border-radius: 20px;
+    background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px; margin: 0 auto 32px;
+  }
+  .cover h1 { font-size: 42px; font-weight: 800; letter-spacing: -1px; margin-bottom: 12px; }
+  .cover h2 { font-size: 20px; font-weight: 300; opacity: 0.8; margin-bottom: 40px; }
+  .cover-badge {
+    display: inline-block; background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3); border-radius: 20px;
+    padding: 6px 20px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
+    margin: 4px;
+  }
+  .cover-meta { margin-top: 60px; opacity: 0.5; font-size: 11px; }
+
+  /* ── ÍNDICE ── */
+  .toc { padding: 60px 80px; page-break-after: always; }
+  .toc h2 { font-size: 28px; font-weight: 700; margin-bottom: 32px; color: var(--primary); border-bottom: 2px solid var(--primary); padding-bottom: 12px; }
+  .toc-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--border); }
+  .toc-num { width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .toc-title { font-size: 14px; font-weight: 500; flex: 1; }
+  .toc-sub { font-size: 12px; color: var(--muted); }
+  .toc-dots { flex: 1; border-bottom: 1px dotted #ccc; }
+
+  /* ── SEÇÕES ── */
+  .section { padding: 60px 80px; page-break-before: always; }
+  .section-header { margin-bottom: 36px; }
+  .section-tag { display: inline-block; background: var(--primary); color: white; border-radius: 4px; padding: 3px 10px; font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; }
+  .section h2 { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; }
+  .section-desc { font-size: 14px; color: var(--muted); margin-top: 8px; max-width: 640px; }
+
+  /* ── CARDS ── */
+  .card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0; }
+  .card-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0; }
+  .card { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .card h4 { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+  .card p { font-size: 12px; color: var(--muted); }
+  .card-icon { font-size: 24px; margin-bottom: 10px; }
+
+  /* ── ROLES TABLE ── */
+  .role-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 12px; }
+  .role-table th { background: #f1f5f9; padding: 10px 14px; text-align: left; font-weight: 600; border-bottom: 2px solid var(--border); }
+  .role-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .role-table tr:hover td { background: #f8fafc; }
+  .badge { display: inline-block; border-radius: 20px; padding: 2px 10px; font-size: 10px; font-weight: 600; }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-purple { background: #ede9fe; color: #6d28d9; }
+  .badge-green { background: #dcfce7; color: #166534; }
+  .badge-orange { background: #ffedd5; color: #9a3412; }
+  .badge-gray { background: #f1f5f9; color: #475569; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .check { color: var(--success); font-weight: 700; }
+  .dash { color: #cbd5e1; }
+
+  /* ── FLOW ── */
+  .flow { display: flex; align-items: center; gap: 0; margin: 28px 0; flex-wrap: wrap; }
+  .flow-step {
+    background: white; border: 2px solid var(--primary);
+    border-radius: 10px; padding: 12px 18px; text-align: center;
+    min-width: 110px; position: relative;
+  }
+  .flow-step.done { border-color: var(--success); }
+  .flow-step.warn { border-color: var(--warning); }
+  .flow-step .step-num { font-size: 10px; font-weight: 700; color: var(--primary); }
+  .flow-step.done .step-num { color: var(--success); }
+  .flow-step.warn .step-num { color: var(--warning); }
+  .flow-step .step-title { font-size: 12px; font-weight: 700; margin-top: 2px; }
+  .flow-step .step-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .flow-arrow { font-size: 20px; color: var(--primary); padding: 0 6px; }
+
+  /* ── SCREEN MOCKUP ── */
+  .screen-wrap { background: #f1f5f9; border-radius: 12px; padding: 16px; margin: 20px 0; }
+  .screen-bar { background: #1e293b; border-radius: 8px 8px 0 0; padding: 8px 14px; display: flex; align-items: center; gap: 6px; }
+  .screen-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .screen-body { background: #0f172a; border-radius: 0 0 8px 8px; padding: 0; overflow: hidden; }
+
+  /* ── INFO BOX ── */
+  .info-box { border-radius: 10px; padding: 16px 20px; margin: 16px 0; display: flex; gap: 12px; align-items: flex-start; }
+  .info-box.blue { background: #eff6ff; border: 1px solid #bfdbfe; }
+  .info-box.green { background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .info-box.orange { background: #fff7ed; border: 1px solid #fed7aa; }
+  .info-box.purple { background: #faf5ff; border: 1px solid #ddd6fe; }
+  .info-icon { font-size: 18px; flex-shrink: 0; }
+  .info-box p { font-size: 12.5px; }
+  .info-box strong { font-weight: 700; }
+
+  /* ── FEATURE LIST ── */
+  .feat-list { list-style: none; margin: 16px 0; }
+  .feat-list li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+  .feat-list li:last-child { border-bottom: none; }
+  .feat-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+
+  /* ── GLOSSARY ── */
+  .glossary-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .glossary-item dt { font-weight: 700; font-size: 13px; color: var(--primary); }
+  .glossary-item dd { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* ── PRINT ── */
+  @media print {
+    body { background: white; }
+    .section, .toc { padding: 40px 60px; }
+    .cover { min-height: 100vh; }
+  }
+
+  @page { size: A4; margin: 0; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ CAPA ══════════════════ -->
+<div class="cover">
+  <div class="cover-logo">🎯</div>
+  <h1>GestRW</h1>
+  <h2>Manual da Plataforma de Gestão de Operações</h2>
+
+  <div style="margin: 20px 0; display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
+    <span class="cover-badge">RemateWeb</span>
+    <span class="cover-badge">Versão 2025</span>
+    <span class="cover-badge">Confidencial</span>
+  </div>
+
+  <div style="margin-top:40px; background:rgba(255,255,255,0.08); border-radius:16px; padding:28px 40px; max-width:520px; text-align:left;">
+    <p style="font-size:13px; opacity:0.7; margin-bottom:16px;">MÓDULOS COBERTOS NESTE MANUAL</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:13px;">
+      <div>📋 Gestão de Eventos</div>
+      <div>📅 Escala de Equipe</div>
+      <div>💰 Financeiro</div>
+      <div>👥 Operadores</div>
+      <div>📊 Exportação</div>
+      <div>🔴 Operação ao Vivo</div>
+      <div>🏢 Empresas & CCs</div>
+      <div>⚙️ Configurações</div>
+    </div>
+  </div>
+
+  <div class="cover-meta">
+    <p>Gestão de Operações · RemateWeb · Documento interno</p>
+  </div>
+</div>
+
+<!-- ══════════════════ ÍNDICE ══════════════════ -->
+<div class="toc">
+  <h2>Sumário</h2>
+
+  <div class="toc-item">
+    <div class="toc-num">1</div>
+    <span class="toc-title">Visão Geral da Plataforma</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">O que é o GestRW e para quem é</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">2</div>
+    <span class="toc-title">Papéis e Permissões</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Quem acessa o quê</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">3</div>
+    <span class="toc-title">Fluxo de Trabalho Principal</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Ciclo de vida de um evento</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">4</div>
+    <span class="toc-title">Módulo: Eventos</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Criação, importação e detalhes</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">5</div>
+    <span class="toc-title">Módulo: Escala</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Agendamento mensal e turnos de painel</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">6</div>
+    <span class="toc-title">Módulo: Financeiro</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Pagamentos, diárias e projeções</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">7</div>
+    <span class="toc-title">Módulo: Operação ao Vivo</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Painel em tempo real</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">8</div>
+    <span class="toc-title">Empresas e Centros de Custo</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Multi-empresa e classificação financeira</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">9</div>
+    <span class="toc-title">Regras de Pagamento</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Faixas de horas, diárias e bônus</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">10</div>
+    <span class="toc-title">Exportação e Relatórios</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Planilhas Excel e formatos</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">11</div>
+    <span class="toc-title">Configurações do Sistema</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Serviços, estúdios, feriados, auditoria</span>
+  </div>
+  <div class="toc-item">
+    <div class="toc-num">12</div>
+    <span class="toc-title">Glossário</span>
+    <span class="toc-dots"></span>
+    <span class="toc-sub">Termos e definições</span>
+  </div>
+</div>
+
+<!-- ══════════════════ 1. VISÃO GERAL ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 1</div>
+    <h2>Visão Geral da Plataforma</h2>
+    <p class="section-desc">GestRW é o sistema de gestão de operações da RemateWeb — centraliza agendamento, escala de equipe, controle financeiro e operação em tempo real dos leilões.</p>
+  </div>
+
+  <!-- Diagrama de arquitetura -->
+  <svg viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:800px;display:block;margin:0 auto 28px;">
+    <!-- Background -->
+    <rect width="800" height="320" rx="16" fill="#0f172a"/>
+    <!-- Title -->
+    <text x="400" y="38" text-anchor="middle" fill="white" font-size="14" font-weight="700" font-family="Segoe UI,sans-serif">Arquitetura da Plataforma GestRW</text>
+
+    <!-- RemateWeb API -->
+    <rect x="20" y="60" width="140" height="60" rx="10" fill="#1e3a6e" stroke="#2F6FED" stroke-width="1.5"/>
+    <text x="90" y="85" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">API RemateWeb</text>
+    <text x="90" y="100" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">Leilões &amp; Catálogos</text>
+
+    <!-- Arrow -->
+    <path d="M160 90 L200 90" stroke="#2F6FED" stroke-width="1.5" marker-end="url(#arr)"/>
+    <defs><marker id="arr" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#2F6FED"/></marker></defs>
+
+    <!-- Firestore -->
+    <rect x="200" y="55" width="140" height="70" rx="10" fill="#1e3a6e" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="270" y="80" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">Firestore</text>
+    <text x="270" y="96" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">Eventos · Operadores</text>
+    <text x="270" y="112" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">Empresas · Pagamentos</text>
+
+    <!-- Arrow -->
+    <path d="M340 90 L380 90" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#arr2)"/>
+    <defs><marker id="arr2" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#f59e0b"/></marker></defs>
+
+    <!-- GestRW Core -->
+    <rect x="380" y="40" width="180" height="100" rx="10" fill="#1d4ed8" stroke="#60a5fa" stroke-width="2"/>
+    <text x="470" y="68" text-anchor="middle" fill="white" font-size="14" font-weight="800" font-family="Segoe UI,sans-serif">GestRW</text>
+    <text x="470" y="86" text-anchor="middle" fill="#bfdbfe" font-size="10" font-family="Segoe UI,sans-serif">Next.js 16 · Firebase Auth</text>
+    <text x="470" y="102" text-anchor="middle" fill="#bfdbfe" font-size="10" font-family="Segoe UI,sans-serif">Payment Engine</text>
+    <text x="470" y="118" text-anchor="middle" fill="#bfdbfe" font-size="10" font-family="Segoe UI,sans-serif">Firebase Hosting</text>
+
+    <!-- Arrow -->
+    <path d="M560 90 L600 90" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arr3)"/>
+    <defs><marker id="arr3" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#60a5fa"/></marker></defs>
+
+    <!-- Usuarios -->
+    <rect x="600" y="55" width="170" height="70" rx="10" fill="#1e3a6e" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="685" y="80" text-anchor="middle" fill="#c4b5fd" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">Usuários</text>
+    <text x="685" y="96" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">Admin · Gestão · Operadores</text>
+    <text x="685" y="112" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">Freelancers · Painel</text>
+
+    <!-- Módulos -->
+    <text x="20" y="170" fill="#94a3b8" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">MÓDULOS DA PLATAFORMA</text>
+
+    <!-- Module cards -->
+    <rect x="20" y="182" width="100" height="52" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="70" y="204" text-anchor="middle" fill="#60a5fa" font-size="18" font-family="Segoe UI,sans-serif">📋</text>
+    <text x="70" y="222" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Eventos</text>
+
+    <rect x="132" y="182" width="100" height="52" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="182" y="204" text-anchor="middle" fill="#34d399" font-size="18" font-family="Segoe UI,sans-serif">📅</text>
+    <text x="182" y="222" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Escala</text>
+
+    <rect x="244" y="182" width="100" height="52" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="294" y="204" text-anchor="middle" fill="#fbbf24" font-size="18" font-family="Segoe UI,sans-serif">💰</text>
+    <text x="294" y="222" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Financeiro</text>
+
+    <rect x="356" y="182" width="100" height="52" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="406" y="204" text-anchor="middle" fill="#f87171" font-size="18" font-family="Segoe UI,sans-serif">🔴</text>
+    <text x="406" y="222" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Ao Vivo</text>
+
+    <rect x="468" y="182" width="100" height="52" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="518" y="204" text-anchor="middle" fill="#a78bfa" font-size="18" font-family="Segoe UI,sans-serif">🏢</text>
+    <text x="518" y="222" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Empresas/CC</text>
+
+    <rect x="580" y="182" width="100" height="52" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="630" y="204" text-anchor="middle" fill="#94a3b8" font-size="18" font-family="Segoe UI,sans-serif">📊</text>
+    <text x="630" y="222" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Exportação</text>
+
+    <rect x="692" y="182" width="88" height="52" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="736" y="204" text-anchor="middle" fill="#94a3b8" font-size="18" font-family="Segoe UI,sans-serif">⚙️</text>
+    <text x="736" y="222" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Config</text>
+
+    <!-- Legend -->
+    <text x="20" y="270" fill="#94a3b8" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">ACESSO</text>
+    <rect x="20" y="280" width="10" height="10" rx="2" fill="#2F6FED"/>
+    <text x="34" y="290" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Web Browser</text>
+    <rect x="140" y="280" width="10" height="10" rx="2" fill="#f59e0b"/>
+    <text x="154" y="290" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Firebase (BaaS)</text>
+    <rect x="270" y="280" width="10" height="10" rx="2" fill="#a78bfa"/>
+    <text x="284" y="290" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Multi-empresa</text>
+    <rect x="390" y="280" width="10" height="10" rx="2" fill="#34d399"/>
+    <text x="404" y="290" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Tempo Real</text>
+  </svg>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-icon">🎯</div>
+      <h4>Para quem é</h4>
+      <p>Equipe de gestão, coordenação, operadores de painel e freelancers da RemateWeb e empresas parceiras do grupo.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔗</div>
+      <h4>Integração RemateWeb</h4>
+      <p>Importa leilões diretamente da API RemateWeb (via token OAuth). Dados de parceiros, raças e canais sincronizados automaticamente.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📱</div>
+      <h4>Acesso</h4>
+      <p>100% web, responsivo. Funciona em computador, tablet e celular. Sem instalação. URL: <strong>gestaoops-7047e.web.app</strong></p>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ 2. PAPÉIS ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 2</div>
+    <h2>Papéis e Permissões</h2>
+    <p class="section-desc">Cada usuário tem um papel que determina o que pode ver e fazer na plataforma. Os papéis são atribuídos por um administrador.</p>
+  </div>
+
+  <table class="role-table">
+    <thead>
+      <tr>
+        <th>Papel</th>
+        <th>Eventos</th>
+        <th>Escala</th>
+        <th>Financeiro</th>
+        <th>Operadores</th>
+        <th>Config</th>
+        <th>Exportação</th>
+        <th>Ao Vivo</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="badge badge-red">Admin</span></td>
+        <td><span class="check">✓ total</span></td>
+        <td><span class="check">✓ total</span></td>
+        <td><span class="check">✓ total</span></td>
+        <td><span class="check">✓ total</span></td>
+        <td><span class="check">✓ total</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="check">✓</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-purple">CEO</span></td>
+        <td><span class="check">✓ total</span></td>
+        <td><span class="check">✓ total</span></td>
+        <td><span class="check">✓ total</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="check">✓</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-blue">Financeiro</span></td>
+        <td>só leitura</td>
+        <td><span class="check">✓</span></td>
+        <td><span class="check">✓ total</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="dash">—</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-green">Administrativo</span></td>
+        <td><span class="check">✓ edita</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="check">✓</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-blue">Planejamento</span></td>
+        <td>planejamento</td>
+        <td><span class="check">✓</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="dash">—</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-orange">Comercial</span></td>
+        <td>receita</td>
+        <td><span class="check">✓</span></td>
+        <td>só receita</td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="dash">—</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-blue">Op. Painel</span></td>
+        <td><span class="check">✓ equipe</span></td>
+        <td><span class="check">✓</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="check">✓</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-gray">Op. Transmissão</span></td>
+        <td><span class="dash">—</span></td>
+        <td>própria</td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="check">✓</span></td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-gray">Freelancer</span></td>
+        <td><span class="dash">—</span></td>
+        <td>própria</td>
+        <td>próprio</td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+        <td><span class="dash">—</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box blue">
+    <span class="info-icon">ℹ️</span>
+    <p><strong>Nota de segurança:</strong> A aba <strong>Operadores</strong> (cadastro completo, incluindo dados de pagamento) é visível apenas ao <strong>Admin</strong>. Outros papéis de gestão veem operadores apenas para escalonamento, sem acesso a dados financeiros pessoais.</p>
+  </div>
+
+  <!-- Diagrama de hierarquia -->
+  <svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:720px;display:block;margin:24px auto 0;">
+    <rect width="720" height="200" rx="12" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="360" y="28" text-anchor="middle" fill="#64748b" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">HIERARQUIA DE ACESSO</text>
+
+    <!-- Admin -->
+    <rect x="290" y="40" width="140" height="36" rx="8" fill="#dc2626"/>
+    <text x="360" y="63" text-anchor="middle" fill="white" font-size="12" font-weight="700" font-family="Segoe UI,sans-serif">Admin</text>
+    <line x1="360" y1="76" x2="360" y2="92" stroke="#cbd5e1" stroke-width="1.5"/>
+
+    <!-- Gestão -->
+    <rect x="100" y="92" width="520" height="36" rx="8" fill="#7c3aed"/>
+    <text x="360" y="115" text-anchor="middle" fill="white" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">Gestão: CEO · Financeiro · Administrativo · Planejamento · Comercial</text>
+    <line x1="160" y1="128" x2="160" y2="144" stroke="#cbd5e1" stroke-width="1.5"/>
+    <line x1="360" y1="128" x2="360" y2="144" stroke="#cbd5e1" stroke-width="1.5"/>
+    <line x1="560" y1="128" x2="560" y2="144" stroke="#cbd5e1" stroke-width="1.5"/>
+
+    <!-- Op Painel -->
+    <rect x="40" y="144" width="240" height="36" rx="8" fill="#1d4ed8"/>
+    <text x="160" y="167" text-anchor="middle" fill="white" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">Op. Painel · Técnico</text>
+
+    <!-- Op Transmissao -->
+    <rect x="300" y="144" width="200" height="36" rx="8" fill="#0369a1"/>
+    <text x="400" y="167" text-anchor="middle" fill="white" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">Op. Transmissão</text>
+
+    <!-- Freelancer -->
+    <rect x="520" y="144" width="160" height="36" rx="8" fill="#475569"/>
+    <text x="600" y="167" text-anchor="middle" fill="white" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">Freelancers</text>
+  </svg>
+</div>
+
+<!-- ══════════════════ 3. FLUXO PRINCIPAL ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 3</div>
+    <h2>Fluxo de Trabalho Principal</h2>
+    <p class="section-desc">O ciclo de vida completo de um leilão, desde a importação até o fechamento financeiro.</p>
+  </div>
+
+  <svg viewBox="0 0 760 440" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:760px;display:block;margin:0 auto 24px;">
+    <rect width="760" height="440" rx="14" fill="#0f172a"/>
+    <text x="380" y="34" text-anchor="middle" fill="white" font-size="14" font-weight="700" font-family="Segoe UI,sans-serif">Ciclo de Vida de um Evento</text>
+
+    <!-- Step 1: Importar -->
+    <rect x="20" y="60" width="120" height="80" rx="10" fill="#1e3a6e" stroke="#2F6FED" stroke-width="2"/>
+    <text x="80" y="88" text-anchor="middle" fill="#93c5fd" font-size="20" font-family="Segoe UI,sans-serif">📥</text>
+    <text x="80" y="107" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Segoe UI,sans-serif">1. Importar</text>
+    <text x="80" y="122" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="Segoe UI,sans-serif">API RemateWeb</text>
+    <text x="80" y="135" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="Segoe UI,sans-serif">ou cadastro manual</text>
+
+    <path d="M140 100 L160 100" stroke="#2F6FED" stroke-width="2" marker-end="url(#a1)"/>
+    <defs><marker id="a1" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#2F6FED"/></marker></defs>
+
+    <!-- Step 2: Configurar -->
+    <rect x="160" y="60" width="120" height="80" rx="10" fill="#1e3a6e" stroke="#7c3aed" stroke-width="2"/>
+    <text x="220" y="88" text-anchor="middle" fill="#c4b5fd" font-size="20" font-family="Segoe UI,sans-serif">⚙️</text>
+    <text x="220" y="107" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Segoe UI,sans-serif">2. Configurar</text>
+    <text x="220" y="122" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="Segoe UI,sans-serif">Tipo, Empresa</text>
+    <text x="220" y="135" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="Segoe UI,sans-serif">Centro de Custo</text>
+
+    <path d="M280 100 L300 100" stroke="#7c3aed" stroke-width="2" marker-end="url(#a2)"/>
+    <defs><marker id="a2" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#7c3aed"/></marker></defs>
+
+    <!-- Step 3: Escalar -->
+    <rect x="300" y="60" width="120" height="80" rx="10" fill="#1e3a6e" stroke="#16a34a" stroke-width="2"/>
+    <text x="360" y="88" text-anchor="middle" fill="#86efac" font-size="20" font-family="Segoe UI,sans-serif">👥</text>
+    <text x="360" y="107" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Segoe UI,sans-serif">3. Escalar</text>
+    <text x="360" y="122" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="Segoe UI,sans-serif">Atribuir operadores</text>
+    <text x="360" y="135" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="Segoe UI,sans-serif">Diárias · Meio-turno</text>
+
+    <path d="M420 100 L440 100" stroke="#16a34a" stroke-width="2" marker-end="url(#a3)"/>
+    <defs><marker id="a3" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#16a34a"/></marker></defs>
+
+    <!-- Step 4: Planejar -->
+    <rect x="440" y="60" width="120" height="80" rx="10" fill="#1e3a6e" stroke="#d97706" stroke-width="2"/>
+    <text x="500" y="88" text-anchor="middle" fill="#fcd34d" font-size="20" font-family="Segoe UI,sans-serif">✈️</text>
+    <text x="500" y="107" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Segoe UI,sans-serif">4. Planejar</text>
+    <text x="500" y="122" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="Segoe UI,sans-serif">Viagem · Hotel</text>
+    <text x="500" y="135" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="Segoe UI,sans-serif">Veículo · Checklist</text>
+
+    <path d="M560 100 L580 100" stroke="#d97706" stroke-width="2" marker-end="url(#a4)"/>
+    <defs><marker id="a4" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#d97706"/></marker></defs>
+
+    <!-- Step 5: Ao Vivo -->
+    <rect x="580" y="60" width="140" height="80" rx="10" fill="#7f1d1d" stroke="#f87171" stroke-width="2"/>
+    <text x="650" y="88" text-anchor="middle" fill="#fca5a5" font-size="20" font-family="Segoe UI,sans-serif">🔴</text>
+    <text x="650" y="107" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Segoe UI,sans-serif">5. Ao Vivo</text>
+    <text x="650" y="122" text-anchor="middle" fill="#fca5a5" font-size="9.5" font-family="Segoe UI,sans-serif">Painel em tempo real</text>
+    <text x="650" y="135" text-anchor="middle" fill="#fca5a5" font-size="9.5" font-family="Segoe UI,sans-serif">Monitoramento</text>
+
+    <!-- Arrow down -->
+    <path d="M650 140 L650 175" stroke="#f87171" stroke-width="2" marker-end="url(#a5)"/>
+    <defs><marker id="a5" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#f87171"/></marker></defs>
+
+    <!-- Step 6: Financeiro -->
+    <rect x="500" y="175" width="290" height="80" rx="10" fill="#1e3a6e" stroke="#fbbf24" stroke-width="2"/>
+    <text x="645" y="208" text-anchor="middle" fill="#fbbf24" font-size="20" font-family="Segoe UI,sans-serif">💰</text>
+    <text x="645" y="227" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Segoe UI,sans-serif">6. Financeiro &amp; Exportação</text>
+    <text x="645" y="242" text-anchor="middle" fill="#64748b" font-size="9.5" font-family="Segoe UI,sans-serif">Pagamentos automáticos · Diárias · Exportação XLSX</text>
+
+    <!-- Left arrow pointing to financial -->
+    <path d="M360 140 L360 215 L500 215" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="4" marker-end="url(#a6)"/>
+    <defs><marker id="a6" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" fill="#fbbf24"/></marker></defs>
+
+    <!-- Roles labels -->
+    <text x="380" y="295" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">RESPONSÁVEL POR ETAPA</text>
+
+    <rect x="20" y="308" width="160" height="40" rx="6" fill="#1e293b"/>
+    <text x="100" y="324" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">Etapas 1-2</text>
+    <text x="100" y="339" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Gestão / Administrativo</text>
+
+    <rect x="200" y="308" width="160" height="40" rx="6" fill="#1e293b"/>
+    <text x="280" y="324" text-anchor="middle" fill="#86efac" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">Etapas 3-4</text>
+    <text x="280" y="339" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Planejamento / Op. Painel</text>
+
+    <rect x="380" y="308" width="160" height="40" rx="6" fill="#1e293b"/>
+    <text x="460" y="324" text-anchor="middle" fill="#fca5a5" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">Etapa 5</text>
+    <text x="460" y="339" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Op. Painel / Transmissão</text>
+
+    <rect x="560" y="308" width="180" height="40" rx="6" fill="#1e293b"/>
+    <text x="650" y="324" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">Etapa 6</text>
+    <text x="650" y="339" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Admin / CEO / Financeiro</text>
+
+    <!-- Tipos -->
+    <text x="380" y="380" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">TIPOS DE EVENTO</text>
+    <rect x="140" y="392" width="100" height="28" rx="6" fill="#1e3a6e" stroke="#2F6FED" stroke-width="1"/>
+    <text x="190" y="411" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">🏢 Estúdio</text>
+    <rect x="260" y="392" width="100" height="28" rx="6" fill="#7f1d1d" stroke="#f87171" stroke-width="1"/>
+    <text x="310" y="411" text-anchor="middle" fill="#fca5a5" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">📍 Externo</text>
+    <rect x="380" y="392" width="120" height="28" rx="6" fill="#1e293b" stroke="#60a5fa" stroke-width="1"/>
+    <text x="440" y="411" text-anchor="middle" fill="#60a5fa" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">📡 Retransmissão</text>
+  </svg>
+
+  <div class="info-box orange">
+    <span class="info-icon">⚠️</span>
+    <p><strong>Regra importante:</strong> Eventos <strong>Externos</strong> ativam automaticamente o módulo de Planejamento e geram <strong>diária de viagem</strong> (R$ 200 por dia de leilão; R$ 300 divididos quando há 2 externos no mesmo dia). A diária é atribuída ao Centro de Custo configurado no evento.</p>
+  </div>
+</div>
+
+<!-- ══════════════════ 4. MÓDULO EVENTOS ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 4</div>
+    <h2>Módulo: Eventos</h2>
+    <p class="section-desc">Central de criação, importação e gerenciamento de todos os leilões e transmissões.</p>
+  </div>
+
+  <!-- Mockup da lista de eventos -->
+  <div class="screen-wrap">
+    <div class="screen-bar">
+      <div class="screen-dot" style="background:#ef4444"></div>
+      <div class="screen-dot" style="background:#f59e0b"></div>
+      <div class="screen-dot" style="background:#22c55e"></div>
+      <span style="color:#64748b;font-size:11px;margin-left:8px;">GestRW · Eventos</span>
+    </div>
+    <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;background:#0f172a;">
+      <!-- Header -->
+      <rect x="0" y="0" width="720" height="48" fill="#1e293b"/>
+      <text x="20" y="30" fill="white" font-size="16" font-weight="700" font-family="Segoe UI,sans-serif">Eventos</text>
+      <rect x="400" y="12" width="120" height="28" rx="6" fill="#1d4ed8"/>
+      <text x="460" y="31" text-anchor="middle" fill="white" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">+ Novo Evento</text>
+      <rect x="530" y="12" width="140" height="28" rx="6" fill="#334155"/>
+      <text x="600" y="31" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">↓ Importar API</text>
+      <!-- Search -->
+      <rect x="20" y="60" width="680" height="32" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+      <text x="40" y="81" fill="#475569" font-size="11" font-family="Segoe UI,sans-serif">🔍  Buscar eventos...</text>
+      <!-- Filter chips -->
+      <rect x="20" y="102" width="80" height="22" rx="11" fill="#1d4ed8"/>
+      <text x="60" y="117" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Todos</text>
+      <rect x="108" y="102" width="70" height="22" rx="11" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+      <text x="143" y="117" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Externo</text>
+      <rect x="186" y="102" width="70" height="22" rx="11" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+      <text x="221" y="117" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Estúdio</text>
+      <rect x="264" y="102" width="90" height="22" rx="11" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+      <text x="309" y="117" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Agendado</text>
+      <!-- Rows -->
+      <rect x="20" y="134" width="680" height="38" rx="6" fill="#1e293b"/>
+      <text x="36" y="150" fill="#f87171" font-size="10" font-family="Segoe UI,sans-serif">📍</text>
+      <text x="52" y="150" fill="white" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">05/07  Leilão Gir Leiteiro São José do Can Can</text>
+      <rect x="480" y="140" width="60" height="20" rx="4" fill="#7f1d1d"/>
+      <text x="510" y="154" text-anchor="middle" fill="#fca5a5" font-size="9.5" font-family="Segoe UI,sans-serif">Externo</text>
+      <rect x="550" y="140" width="70" height="20" rx="4" fill="#166534"/>
+      <text x="585" y="154" text-anchor="middle" fill="#86efac" font-size="9.5" font-family="Segoe UI,sans-serif">Agendado</text>
+      <text x="636" y="156" fill="#334155" font-size="14" font-family="Segoe UI,sans-serif">›</text>
+
+      <rect x="20" y="178" width="680" height="38" rx="6" fill="#1e293b"/>
+      <text x="36" y="194" fill="#60a5fa" font-size="10" font-family="Segoe UI,sans-serif">🏢</text>
+      <text x="52" y="194" fill="white" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">06/07  III Leilão Virtual JBJ Genetics</text>
+      <rect x="480" y="184" width="60" height="20" rx="4" fill="#1e3a6e"/>
+      <text x="510" y="198" text-anchor="middle" fill="#93c5fd" font-size="9.5" font-family="Segoe UI,sans-serif">Estúdio</text>
+      <rect x="550" y="184" width="70" height="20" rx="4" fill="#166534"/>
+      <text x="585" y="198" text-anchor="middle" fill="#86efac" font-size="9.5" font-family="Segoe UI,sans-serif">Agendado</text>
+      <text x="636" y="200" fill="#334155" font-size="14" font-family="Segoe UI,sans-serif">›</text>
+
+      <rect x="20" y="222" width="680" height="30" rx="6" fill="#0f172a"/>
+      <text x="360" y="241" text-anchor="middle" fill="#334155" font-size="11" font-family="Segoe UI,sans-serif">... mais eventos ...</text>
+    </svg>
+  </div>
+
+  <ul class="feat-list">
+    <li>
+      <div class="feat-icon" style="background:#dbeafe;">📥</div>
+      <div><strong>Importação API</strong> — Importa leilões diretamente da plataforma RemateWeb com um clique. Atualiza título, data, parceiro, canal e raça automaticamente.</div>
+    </li>
+    <li>
+      <div class="feat-icon" style="background:#dcfce7;">✍️</div>
+      <div><strong>Cadastro manual</strong> — Criação de eventos que não estão no RemateWeb (gravações, treinamentos, externos especiais).</div>
+    </li>
+    <li>
+      <div class="feat-icon" style="background:#fef9c3;">🏷️</div>
+      <div><strong>Empresa & Centro de Custo</strong> — Cada evento é vinculado a uma empresa do grupo e um centro de custo para rastreabilidade financeira.</div>
+    </li>
+    <li>
+      <div class="feat-icon" style="background:#fce7f3;">📋</div>
+      <div><strong>Abas internas</strong> — Cada evento tem: Informações · Serviços · Equipe · Planejamento · Despesas · Fechamento.</div>
+    </li>
+  </ul>
+
+  <!-- Tipos de operação -->
+  <div class="card-grid">
+    <div class="card" style="border-color:#2F6FED;">
+      <h4>🏢 Estúdio</h4>
+      <p>Leilão transmitido de dentro do estúdio (E1–E4). Pagamento por faixa de horas. Sem diária de viagem.</p>
+    </div>
+    <div class="card" style="border-color:#dc2626;">
+      <h4>📍 Externo</h4>
+      <p>Leilão no local do cliente. Gera diária de viagem (R$200/dia) e ativa automaticamente o módulo de Planejamento.</p>
+    </div>
+    <div class="card" style="border-color:#0369a1;">
+      <h4>📡 Retransmissão</h4>
+      <p>Retransmissão de sinal de outro operador. Regras específicas de pagamento conforme configuração.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ 5. ESCALA ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 5</div>
+    <h2>Módulo: Escala</h2>
+    <p class="section-desc">Calendário mensal interativo para visualizar e gerenciar o agendamento de toda a equipe.</p>
+  </div>
+
+  <!-- Mockup escala mensal -->
+  <div class="screen-wrap">
+    <div class="screen-bar">
+      <div class="screen-dot" style="background:#ef4444"></div>
+      <div class="screen-dot" style="background:#f59e0b"></div>
+      <div class="screen-dot" style="background:#22c55e"></div>
+      <span style="color:#64748b;font-size:11px;margin-left:8px;">GestRW · Escala · Julho 2025</span>
+    </div>
+    <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;background:#0f172a;">
+      <!-- Header nav -->
+      <rect x="0" y="0" width="720" height="44" fill="#1e293b"/>
+      <text x="20" y="28" fill="#94a3b8" font-size="14" font-family="Segoe UI,sans-serif">‹</text>
+      <text x="360" y="28" text-anchor="middle" fill="white" font-size="14" font-weight="700" font-family="Segoe UI,sans-serif">Julho 2025</text>
+      <text x="700" y="28" text-anchor="middle" fill="#94a3b8" font-size="14" font-family="Segoe UI,sans-serif">›</text>
+
+      <!-- Day headers -->
+      <text x="56" y="62" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">DOM</text>
+      <text x="158" y="62" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">SEG</text>
+      <text x="260" y="62" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">TER</text>
+      <text x="362" y="62" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">QUA</text>
+      <text x="464" y="62" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">QUI</text>
+      <text x="566" y="62" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">SEX</text>
+      <text x="664" y="62" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">SÁB</text>
+
+      <!-- Grid -->
+      <line x1="8" y1="70" x2="712" y2="70" stroke="#334155" stroke-width="0.5"/>
+      <!-- Row 1 -->
+      <rect x="8" y="72" width="96" height="54" rx="4" fill="#1e293b"/>
+      <rect x="112" y="72" width="96" height="54" rx="4" fill="#1e293b"/>
+      <rect x="216" y="72" width="96" height="54" rx="4" fill="#1e293b"/>
+      <text x="240" y="87" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">1</text>
+      <rect x="224" y="92" width="84" height="16" rx="3" fill="#1d4ed8"/>
+      <text x="266" y="104" text-anchor="middle" fill="white" font-size="9" font-family="Segoe UI,sans-serif">🏢 JBJ Genetics</text>
+      <rect x="320" y="72" width="96" height="54" rx="4" fill="#1e293b"/>
+      <text x="344" y="87" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">2</text>
+      <rect x="416" y="72" width="96" height="54" rx="4" fill="#1e293b"/>
+      <text x="440" y="87" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">3</text>
+      <rect x="516" y="72" width="96" height="54" rx="4" fill="#1e293b"/>
+      <text x="540" y="87" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">4</text>
+      <rect x="620" y="72" width="92" height="54" rx="4" fill="#1a1a2e"/>
+      <text x="644" y="87" fill="#64748b" font-size="11" font-family="Segoe UI,sans-serif">5</text>
+      <!-- Row 2 -->
+      <rect x="8" y="132" width="96" height="54" rx="4" fill="#1a1a2e"/>
+      <text x="32" y="147" fill="#64748b" font-size="11" font-family="Segoe UI,sans-serif">6</text>
+      <rect x="112" y="132" width="96" height="54" rx="4" fill="#1e293b"/>
+      <text x="136" y="147" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">7</text>
+      <rect x="216" y="132" width="96" height="54" rx="4" fill="#1e293b"/>
+      <text x="240" y="147" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">8</text>
+      <rect x="320" y="132" width="96" height="54" rx="4" fill="#1e293b"/>
+      <text x="344" y="147" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">9</text>
+      <rect x="324" y="152" width="84" height="16" rx="3" fill="#7f1d1d"/>
+      <text x="366" y="164" text-anchor="middle" fill="#fca5a5" font-size="9" font-family="Segoe UI,sans-serif">📍 Can Can</text>
+      <rect x="416" y="132" width="96" height="54" rx="4" fill="#1e293b"/>
+      <text x="440" y="147" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">10</text>
+      <rect x="516" y="132" width="96" height="54" rx="4" fill="#1e293b"/>
+      <text x="540" y="147" fill="#94a3b8" font-size="11" font-family="Segoe UI,sans-serif">11</text>
+      <rect x="620" y="132" width="92" height="54" rx="4" fill="#1a1a2e"/>
+      <text x="644" y="147" fill="#64748b" font-size="11" font-family="Segoe UI,sans-serif">12</text>
+
+      <!-- Legend -->
+      <rect x="20" y="200" width="12" height="12" rx="2" fill="#1d4ed8"/>
+      <text x="36" y="212" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Estúdio</text>
+      <rect x="110" y="200" width="12" height="12" rx="2" fill="#7f1d1d"/>
+      <text x="126" y="212" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Externo</text>
+      <rect x="200" y="200" width="12" height="12" rx="2" fill="#166534"/>
+      <text x="216" y="212" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Escala confirmada</text>
+      <rect x="360" y="200" width="12" height="12" rx="2" fill="#854d0e"/>
+      <text x="376" y="212" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Pendente</text>
+      <rect x="460" y="200" width="12" height="12" rx="2" fill="#334155"/>
+      <text x="476" y="212" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Folga</text>
+
+      <!-- Info sidebar -->
+      <rect x="560" y="188" width="152" height="56" rx="8" fill="#1e3a6e" stroke="#2F6FED" stroke-width="1"/>
+      <text x="636" y="204" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="600" font-family="Segoe UI,sans-serif">💡 Dica</text>
+      <text x="576" y="218" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">Clique em qualquer dia</text>
+      <text x="576" y="231" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">para escalar operadores</text>
+    </svg>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>📅 Calendário Mensal</h4>
+      <p>Visão completa do mês com todos os eventos. Navegue entre meses com as setas. Fins de semana destacados.</p>
+    </div>
+    <div class="card">
+      <h4>👤 Turnos de Painel</h4>
+      <p>Defina qual operador de painel cobre cada turno (Turno 1 / Turno 2). Meio-turno distribui proporcionalmente o pagamento.</p>
+    </div>
+    <div class="card">
+      <h4>😴 Folgas</h4>
+      <p>Marque folgas semanais fixas ou avulsas por operador. Quando escalado em dia de folga, o sistema aplica tabela de folga automaticamente.</p>
+    </div>
+  </div>
+
+  <div class="info-box purple">
+    <span class="info-icon">🔵</span>
+    <p><strong>Meio-turno:</strong> Quando um evento de painel é dividido entre dois operadores (ex: Turno 1 até 18h, Turno 2 a partir de 18h), cada operador recebe proporcionalmente ao tempo coberto. O sistema calcula automaticamente a divisão pelo horário de troca informado.</p>
+  </div>
+</div>
+
+<!-- ══════════════════ 6. FINANCEIRO ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 6</div>
+    <h2>Módulo: Financeiro</h2>
+    <p class="section-desc">Cálculo automático de pagamentos por operador, projeção de diárias de viagem e resultado financeiro por período.</p>
+  </div>
+
+  <!-- Fluxo de cálculo -->
+  <svg viewBox="0 0 720 180" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:720px;display:block;margin:0 auto 24px;">
+    <rect width="720" height="180" rx="12" fill="#0f172a"/>
+    <text x="360" y="28" text-anchor="middle" fill="white" font-size="13" font-weight="700" font-family="Segoe UI,sans-serif">Motor de Cálculo de Pagamento</text>
+
+    <rect x="20" y="44" width="120" height="100" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="80" y="72" text-anchor="middle" fill="#fbbf24" font-size="18" font-family="Segoe UI,sans-serif">⏱️</text>
+    <text x="80" y="92" text-anchor="middle" fill="white" font-size="10" font-weight="700" font-family="Segoe UI,sans-serif">Duração</text>
+    <text x="80" y="108" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">Início → Fim</text>
+    <text x="80" y="122" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">do evento</text>
+
+    <path d="M140 94 L168 94" stroke="#334155" stroke-width="1.5" marker-end="url(#af)"/>
+    <defs><marker id="af" markerWidth="5" markerHeight="5" refX="3" refY="2.5" orient="auto"><path d="M0,0 L0,5 L5,2.5 z" fill="#334155"/></marker></defs>
+
+    <rect x="168" y="44" width="120" height="100" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="228" y="72" text-anchor="middle" fill="#86efac" font-size="18" font-family="Segoe UI,sans-serif">📊</text>
+    <text x="228" y="92" text-anchor="middle" fill="white" font-size="10" font-weight="700" font-family="Segoe UI,sans-serif">Faixa de Horas</text>
+    <text x="228" y="108" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">4–8h / 8–12h</text>
+    <text x="228" y="122" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">12h+ etc.</text>
+
+    <path d="M288 94 L316 94" stroke="#334155" stroke-width="1.5" marker-end="url(#af2)"/>
+    <defs><marker id="af2" markerWidth="5" markerHeight="5" refX="3" refY="2.5" orient="auto"><path d="M0,0 L0,5 L5,2.5 z" fill="#334155"/></marker></defs>
+
+    <rect x="316" y="44" width="120" height="100" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="376" y="72" text-anchor="middle" fill="#fca5a5" font-size="18" font-family="Segoe UI,sans-serif">✈️</text>
+    <text x="376" y="92" text-anchor="middle" fill="white" font-size="10" font-weight="700" font-family="Segoe UI,sans-serif">Diária Viagem</text>
+    <text x="376" y="108" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">R$200 (1 ext.)</text>
+    <text x="376" y="122" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">R$300 (2 ext.)</text>
+
+    <path d="M436 94 L464 94" stroke="#334155" stroke-width="1.5" marker-end="url(#af3)"/>
+    <defs><marker id="af3" markerWidth="5" markerHeight="5" refX="3" refY="2.5" orient="auto"><path d="M0,0 L0,5 L5,2.5 z" fill="#334155"/></marker></defs>
+
+    <rect x="464" y="44" width="120" height="100" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="524" y="72" text-anchor="middle" fill="#c4b5fd" font-size="18" font-family="Segoe UI,sans-serif">🎁</text>
+    <text x="524" y="92" text-anchor="middle" fill="white" font-size="10" font-weight="700" font-family="Segoe UI,sans-serif">Bônus CLT</text>
+    <text x="524" y="108" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">FDS/Feriado</text>
+    <text x="524" y="122" text-anchor="middle" fill="#64748b" font-size="9" font-family="Segoe UI,sans-serif">+ Folga extra</text>
+
+    <path d="M584 94 L612 94" stroke="#334155" stroke-width="1.5" marker-end="url(#af4)"/>
+    <defs><marker id="af4" markerWidth="5" markerHeight="5" refX="3" refY="2.5" orient="auto"><path d="M0,0 L0,5 L5,2.5 z" fill="#334155"/></marker></defs>
+
+    <rect x="612" y="44" width="90" height="100" rx="8" fill="#166534" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="657" y="72" text-anchor="middle" fill="#86efac" font-size="18" font-family="Segoe UI,sans-serif">💰</text>
+    <text x="657" y="92" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Segoe UI,sans-serif">TOTAL</text>
+    <text x="657" y="108" text-anchor="middle" fill="#86efac" font-size="10" font-family="Segoe UI,sans-serif">R$ XXX</text>
+    <text x="657" y="124" text-anchor="middle" fill="#86efac" font-size="9" font-family="Segoe UI,sans-serif">por operador</text>
+  </svg>
+
+  <div class="card-grid-2">
+    <div class="card">
+      <h4>📊 Resumo do Período</h4>
+      <p>Receita total · Despesas · Pagamentos de equipe · Resultado líquido. Filtre por qualquer período com datas de início e fim.</p>
+    </div>
+    <div class="card">
+      <h4>✈️ Projeção de Diárias</h4>
+      <p>Lista automática de todos os eventos com viagem no período, agrupados por Empresa e Centro de Custo. Exportável para Excel.</p>
+    </div>
+    <div class="card">
+      <h4>👤 Extrato por Operador</h4>
+      <p>Quanto cada operador receberá, com detalhamento por evento: regra aplicada, valor e data. Exportável para Excel.</p>
+    </div>
+    <div class="card">
+      <h4>📤 Exportação Contábil</h4>
+      <p>Planilha XLSX com colunas: Operador · Empresa · Centro de Custo · Data · Leilão · Regra · Valor.</p>
+    </div>
+  </div>
+
+  <!-- Tabela de regras -->
+  <h3 style="margin:20px 0 12px; font-size:15px;">Regras de Pagamento por Tipo de Contrato</h3>
+  <table class="role-table">
+    <thead>
+      <tr><th>Tipo</th><th>Método</th><th>FDS/Feriado</th><th>Viagem (Externo)</th><th>Folga</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="badge badge-blue">Funcionário CLT</span></td>
+        <td>Faixas de horas (dia útil)</td>
+        <td>Faixas de horas FDS (valores diferentes)</td>
+        <td>Apenas diária — sem faixa de horas</td>
+        <td>Tabela Freelancer N2</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-green">Freelancer N1</span></td>
+        <td>Faixas de horas</td>
+        <td>Faixas de horas FDS</td>
+        <td>Diária + faixa de horas</td>
+        <td>N/A</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-orange">Freelancer N2</span></td>
+        <td>Valor fixo por evento</td>
+        <td>Valor fixo FDS</td>
+        <td>Diária + valor fixo</td>
+        <td>N/A</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box green">
+    <span class="info-icon">✅</span>
+    <p><strong>Regra de viagem:</strong> Quando o operador CLT tem <strong>viagem (externo)</strong>, a diária de R$200 <em>substitui</em> (não soma com) a faixa de horas. Dois eventos externos no mesmo dia = R$300 total dividido proporcionalmente entre eles.</p>
+  </div>
+</div>
+
+<!-- ══════════════════ 7. OPERAÇÃO AO VIVO ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 7</div>
+    <h2>Módulo: Operação ao Vivo</h2>
+    <p class="section-desc">Painel em tempo real para monitoramento de todos os eventos do dia e do dia seguinte.</p>
+  </div>
+
+  <div class="screen-wrap">
+    <div class="screen-bar">
+      <div class="screen-dot" style="background:#ef4444"></div>
+      <div class="screen-dot" style="background:#f59e0b"></div>
+      <div class="screen-dot" style="background:#22c55e"></div>
+      <span style="color:#64748b;font-size:11px;margin-left:8px;">GestRW · Operação ao Vivo · Hoje</span>
+      <span style="color:#ef4444;font-size:11px;margin-left:auto;">● AO VIVO</span>
+    </div>
+    <svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;background:#0f172a;">
+      <rect x="0" y="0" width="720" height="44" fill="#1e293b"/>
+      <text x="20" y="28" fill="white" font-size="14" font-weight="700" font-family="Segoe UI,sans-serif">🔴 Operação ao Vivo</text>
+      <circle cx="660" cy="22" r="6" fill="#ef4444"/>
+      <text x="672" y="27" fill="#fca5a5" font-size="11" font-family="Segoe UI,sans-serif">HOJE</text>
+
+      <!-- Event card 1 -->
+      <rect x="12" y="52" width="340" height="132" rx="8" fill="#1e293b" stroke="#1d4ed8" stroke-width="1.5"/>
+      <rect x="12" y="52" width="6" height="132" rx="3" fill="#1d4ed8"/>
+      <text x="32" y="74" fill="#93c5fd" font-size="10" font-weight="700" font-family="Segoe UI,sans-serif">🏢 ESTÚDIO</text>
+      <text x="32" y="90" fill="white" font-size="12" font-weight="700" font-family="Segoe UI,sans-serif">JBJ Genetics — Transmissão E2</text>
+      <text x="32" y="106" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">📍 Estúdio 2  ·  ⏰ 13:00 – 18:00</text>
+      <text x="32" y="122" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">📡 Canal: GBO  ·  🎙 Raça: Nelore PO</text>
+      <rect x="32" y="130" width="290" height="1" fill="#334155"/>
+      <text x="32" y="148" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Equipe: </text>
+      <text x="76" y="148" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Matheus Marques · Sandro Riedner</text>
+      <rect x="32" y="158" width="100" height="16" rx="4" fill="#166534"/>
+      <text x="82" y="170" text-anchor="middle" fill="#86efac" font-size="9" font-family="Segoe UI,sans-serif">✓ Escalado</text>
+
+      <!-- Event card 2 -->
+      <rect x="368" y="52" width="340" height="132" rx="8" fill="#1e293b" stroke="#7f1d1d" stroke-width="1.5"/>
+      <rect x="368" y="52" width="6" height="132" rx="3" fill="#dc2626"/>
+      <text x="388" y="74" fill="#fca5a5" font-size="10" font-weight="700" font-family="Segoe UI,sans-serif">📍 EXTERNO</text>
+      <text x="388" y="90" fill="white" font-size="12" font-weight="700" font-family="Segoe UI,sans-serif">Leilão Gir Leiteiro São José do Can Can</text>
+      <text x="388" y="106" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">📍 MT  ·  ⏰ 09:00 – 16:00</text>
+      <text x="388" y="122" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">🏪 Parceiro: Nelore Orgânico</text>
+      <rect x="388" y="130" width="290" height="1" fill="#334155"/>
+      <text x="388" y="148" fill="#94a3b8" font-size="10" font-family="Segoe UI,sans-serif">Equipe: </text>
+      <text x="432" y="148" fill="white" font-size="10" font-family="Segoe UI,sans-serif">Carlos Eduardo · Robson Kuiawski</text>
+      <rect x="388" y="158" width="100" height="16" rx="4" fill="#166534"/>
+      <text x="438" y="170" text-anchor="middle" fill="#86efac" font-size="9" font-family="Segoe UI,sans-serif">✓ Em campo</text>
+    </svg>
+  </div>
+
+  <ul class="feat-list">
+    <li>
+      <div class="feat-icon" style="background:#fee2e2;">🔴</div>
+      <div><strong>Visão em tempo real</strong> — Exibe todos os eventos de hoje e amanhã. Atualização automática a cada 30 segundos.</div>
+    </li>
+    <li>
+      <div class="feat-icon" style="background:#dcfce7;">👥</div>
+      <div><strong>Equipe por evento</strong> — Visualiza quem está escalado em cada leilão, com nome e função.</div>
+    </li>
+    <li>
+      <div class="feat-icon" style="background:#dbeafe;">📡</div>
+      <div><strong>Acesso diferenciado</strong> — Disponível para Admin, CEO, Gestores, Operadores de Painel e de Transmissão. Cada um vê o que é relevante para sua função.</div>
+    </li>
+  </ul>
+</div>
+
+<!-- ══════════════════ 8. EMPRESAS & CC ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 8</div>
+    <h2>Empresas e Centros de Custo</h2>
+    <p class="section-desc">Estrutura multi-empresa que permite separar financeiramente os custos entre as empresas do grupo e suas respectivas áreas de negócio.</p>
+  </div>
+
+  <svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:720px;display:block;margin:0 auto 24px;">
+    <rect width="720" height="220" rx="12" fill="#0f172a"/>
+    <text x="360" y="30" text-anchor="middle" fill="white" font-size="13" font-weight="700" font-family="Segoe UI,sans-serif">Hierarquia Financeira Multi-Empresa</text>
+
+    <!-- Level 1: Grupo -->
+    <rect x="260" y="44" width="200" height="40" rx="8" fill="#7c3aed"/>
+    <text x="360" y="69" text-anchor="middle" fill="white" font-size="12" font-weight="700" font-family="Segoe UI,sans-serif">🏛 Grupo RemateWeb</text>
+
+    <line x1="200" y1="84" x2="200" y2="104" stroke="#475569" stroke-width="1.5"/>
+    <line x1="520" y1="84" x2="520" y2="104" stroke="#475569" stroke-width="1.5"/>
+    <line x1="360" y1="84" x2="360" y2="104" stroke="#475569" stroke-width="1.5"/>
+    <line x1="200" y1="104" x2="520" y2="104" stroke="#475569" stroke-width="1.5"/>
+
+    <!-- Level 2: Empresas -->
+    <rect x="20" y="104" width="160" height="40" rx="8" fill="#1d4ed8"/>
+    <text x="100" y="129" text-anchor="middle" fill="white" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">🔵 RemateWeb</text>
+
+    <rect x="280" y="104" width="160" height="40" rx="8" fill="#0369a1"/>
+    <text x="360" y="129" text-anchor="middle" fill="white" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">🟦 3M Produtora</text>
+
+    <rect x="540" y="104" width="160" height="40" rx="8" fill="#475569" stroke="#64748b" stroke-dasharray="4"/>
+    <text x="620" y="129" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">+ Nova Empresa</text>
+
+    <!-- Level 3: Centros de custo -->
+    <line x1="100" y1="144" x2="100" y2="164" stroke="#475569" stroke-width="1.5"/>
+    <line x1="360" y1="144" x2="360" y2="164" stroke="#475569" stroke-width="1.5"/>
+
+    <rect x="20" y="164" width="80" height="36" rx="6" fill="#1e293b" stroke="#1d4ed8" stroke-width="1"/>
+    <text x="60" y="181" text-anchor="middle" fill="#93c5fd" font-size="9" font-weight="600" font-family="Segoe UI,sans-serif">Leilões</text>
+    <text x="60" y="193" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI,sans-serif">Externos</text>
+
+    <rect x="110" y="164" width="80" height="36" rx="6" fill="#1e293b" stroke="#1d4ed8" stroke-width="1"/>
+    <text x="150" y="181" text-anchor="middle" fill="#93c5fd" font-size="9" font-weight="600" font-family="Segoe UI,sans-serif">Produção</text>
+    <text x="150" y="193" text-anchor="middle" fill="#93c5fd" font-size="9" font-family="Segoe UI,sans-serif">Estúdio</text>
+
+    <rect x="280" y="164" width="80" height="36" rx="6" fill="#1e293b" stroke="#0369a1" stroke-width="1"/>
+    <text x="320" y="181" text-anchor="middle" fill="#7dd3fc" font-size="9" font-weight="600" font-family="Segoe UI,sans-serif">Captação</text>
+    <text x="320" y="193" text-anchor="middle" fill="#7dd3fc" font-size="9" font-family="Segoe UI,sans-serif">Conteúdo</text>
+
+    <rect x="370" y="164" width="80" height="36" rx="6" fill="#1e293b" stroke="#0369a1" stroke-width="1"/>
+    <text x="410" y="181" text-anchor="middle" fill="#7dd3fc" font-size="9" font-weight="600" font-family="Segoe UI,sans-serif">Marketing</text>
+    <text x="410" y="193" text-anchor="middle" fill="#7dd3fc" font-size="9" font-family="Segoe UI,sans-serif">Digital</text>
+  </svg>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>🏢 Empresa</h4>
+      <p>Nome, sigla (ex: RW), CNPJ e cor de identificação. Cada empresa é independente para fins de controle financeiro.</p>
+    </div>
+    <div class="card">
+      <h4>📁 Centro de Custo</h4>
+      <p>Subdivisão dentro da empresa. Tipos: Operacional, Financeiro, Comercial, Administrativo. Vinculado ao evento.</p>
+    </div>
+    <div class="card">
+      <h4>📤 Exportação por CC</h4>
+      <p>Relatório de diárias de viagem exporta por Empresa → Centro de Custo, permitindo conciliação contábil precisa.</p>
+    </div>
+  </div>
+
+  <div class="info-box blue">
+    <span class="info-icon">📍</span>
+    <p><strong>Configuração:</strong> Acesse <strong>Configurações → Empresas</strong> para cadastrar empresas e seus centros de custo. Ao criar ou editar um evento, selecione a empresa e o centro de custo nos campos dedicados. A <strong>RemateWeb</strong> é pré-selecionada automaticamente em novos eventos.</p>
+  </div>
+</div>
+
+<!-- ══════════════════ 9. REGRAS DE PAGAMENTO ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 9</div>
+    <h2>Regras de Pagamento</h2>
+    <p class="section-desc">O motor de cálculo aplica automaticamente as regras corretas com base no tipo de contrato, duração e dia da semana.</p>
+  </div>
+
+  <h3 style="font-size:14px;margin-bottom:12px;">Tabela padrão — Funcionário CLT</h3>
+  <table class="role-table">
+    <thead>
+      <tr><th>Faixa</th><th>Horário</th><th>Dia Útil</th><th>FDS / Feriado</th><th>Externo</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Curta</td>
+        <td>4h – 8h</td>
+        <td>R$ 0</td>
+        <td>R$ 100</td>
+        <td rowspan="3" style="vertical-align:middle;text-align:center;background:#f0fdf4;color:#166534;font-weight:700;">Diária<br>R$ 200</td>
+      </tr>
+      <tr>
+        <td>Média</td>
+        <td>8h – 12h</td>
+        <td>R$ 100</td>
+        <td>R$ 150</td>
+      </tr>
+      <tr>
+        <td>Longa</td>
+        <td>12h+</td>
+        <td>R$ 100</td>
+        <td>R$ 300</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box orange">
+    <span class="info-icon">⚙️</span>
+    <p><strong>Personalização:</strong> Cada operador pode ter uma tabela de faixas de horas própria, configurada no cadastro de Operadores. Se não tiver tabela própria, usa a tabela padrão do tipo de contrato (Funcionário, Freelancer N1 ou N2). As tabelas padrão são editáveis em <strong>Configurações → Modelos de Ganhos</strong>.</p>
+  </div>
+
+  <!-- Diagrama regras externo -->
+  <h3 style="font-size:14px;margin:20px 0 12px;">Cálculo de Diária para Eventos Externos</h3>
+  <svg viewBox="0 0 600 140" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:600px;display:block;margin:0 auto;">
+    <rect width="600" height="140" rx="10" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+
+    <!-- 1 externo -->
+    <rect x="20" y="20" width="240" height="100" rx="8" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="140" y="44" text-anchor="middle" fill="#0f172a" font-size="12" font-weight="700" font-family="Segoe UI,sans-serif">1 Externo no dia</text>
+    <text x="140" y="66" text-anchor="middle" fill="#16a34a" font-size="22" font-weight="800" font-family="Segoe UI,sans-serif">R$ 200</text>
+    <text x="140" y="84" text-anchor="middle" fill="#64748b" font-size="11" font-family="Segoe UI,sans-serif">1 diária completa</text>
+    <text x="140" y="100" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">+ dias de deslocamento × R$200</text>
+    <text x="140" y="115" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">(antes e depois)</text>
+
+    <!-- 2 externos -->
+    <rect x="340" y="20" width="240" height="100" rx="8" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="460" y="44" text-anchor="middle" fill="#0f172a" font-size="12" font-weight="700" font-family="Segoe UI,sans-serif">2 Externos no mesmo dia</text>
+    <text x="460" y="66" text-anchor="middle" fill="#d97706" font-size="22" font-weight="800" font-family="Segoe UI,sans-serif">R$ 300</text>
+    <text x="460" y="84" text-anchor="middle" fill="#64748b" font-size="11" font-family="Segoe UI,sans-serif">1,5 diária · dividido proporcional</text>
+    <text x="460" y="100" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">R$150 por evento (automático)</text>
+    <text x="460" y="115" text-anchor="middle" fill="#64748b" font-size="10" font-family="Segoe UI,sans-serif">+ deslocamento separado</text>
+
+    <!-- VS -->
+    <circle cx="300" cy="70" r="18" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="300" y="75" text-anchor="middle" fill="#64748b" font-size="11" font-weight="600" font-family="Segoe UI,sans-serif">VS</text>
+  </svg>
+</div>
+
+<!-- ══════════════════ 10. EXPORTAÇÃO ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 10</div>
+    <h2>Exportação e Relatórios</h2>
+    <p class="section-desc">Gere planilhas Excel com os dados do período para uso em contabilidade, RH ou apresentações gerenciais.</p>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>📋 Lista de Eventos</h4>
+      <p>Todos os eventos do período com: Data, Título, Tipo, Cidade, Canal, Parceiro, Receita, Equipe escalada.</p>
+    </div>
+    <div class="card">
+      <h4>💰 Extrato por Operador</h4>
+      <p>Pagamento detalhado por evento para cada operador: Data, Evento, Empresa, Centro de Custo, Regra aplicada, Valor.</p>
+    </div>
+    <div class="card">
+      <h4>✈️ Diárias de Viagem</h4>
+      <p>Projeção de custos de viagem por Empresa e Centro de Custo: operador, evento, dias antes/depois, diária do leilão, total.</p>
+    </div>
+  </div>
+
+  <div class="info-box green">
+    <span class="info-icon">💡</span>
+    <p><strong>Dica:</strong> O módulo <strong>Financeiro</strong> tem exportações rápidas direto nos cards de Extrato por Operador e Projeção de Diárias. O módulo <strong>Exportação</strong> (menu lateral) oferece relatórios mais completos com filtro avançado por período.</p>
+  </div>
+</div>
+
+<!-- ══════════════════ 11. CONFIGURAÇÕES ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 11</div>
+    <h2>Configurações do Sistema</h2>
+    <p class="section-desc">Acesso restrito a Administradores. Gerencia todas as tabelas e parâmetros da plataforma.</p>
+  </div>
+
+  <table class="role-table">
+    <thead>
+      <tr><th>Aba</th><th>O que configura</th><th>Impacto</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Funções</strong></td>
+        <td>Funções de equipe disponíveis na escala (ex: Operador Principal, Auxiliar)</td>
+        <td>Aparece no campo "Função" ao escalar operadores em eventos</td>
+      </tr>
+      <tr>
+        <td><strong>Serviços</strong></td>
+        <td>Catálogo de serviços (Transmissão Estúdio, Captação, Retransmissão, etc.) e seus valores fixos</td>
+        <td>Define o tipo de operação e o cálculo de valores fixos (ex: Bora Leilão = R$75)</td>
+      </tr>
+      <tr>
+        <td><strong>Estúdios</strong></td>
+        <td>Lista de nomes de estúdios disponíveis (E1, E2, E3, E4, etc.)</td>
+        <td>Aparece no select de estúdio em eventos do tipo Estúdio</td>
+      </tr>
+      <tr>
+        <td><strong>Modelos de Ganhos</strong></td>
+        <td>Tabelas de faixas de horas para Funcionário, Freelancer N1 e N2. Valores de diárias padrão.</td>
+        <td>Usado quando o operador não tem tabela personalizada</td>
+      </tr>
+      <tr>
+        <td><strong>Feriados</strong></td>
+        <td>Lista de feriados nacionais e regionais com data e nome</td>
+        <td>Determina se o cálculo usa valores de FDS/Feriado ou dia útil</td>
+      </tr>
+      <tr>
+        <td><strong>Empresas</strong></td>
+        <td>Empresas do grupo e seus centros de custo financeiros</td>
+        <td>Vincula eventos a empresas e CCs para projeção de custos</td>
+      </tr>
+      <tr>
+        <td><strong>Fiscal</strong></td>
+        <td>Regime tributário e percentual de nota fiscal</td>
+        <td>Usado na tela de fechamento do evento para cálculo fiscal</td>
+      </tr>
+      <tr>
+        <td><strong>API RemateWeb</strong></td>
+        <td>Credenciais e token de autenticação na API RemateWeb</td>
+        <td>Habilita a importação de leilões diretamente da plataforma</td>
+      </tr>
+      <tr>
+        <td><strong>Auditoria</strong></td>
+        <td>Log completo de todas as ações dos usuários (somente leitura)</td>
+        <td>Rastreabilidade e conformidade — quem fez o quê e quando</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════ 12. GLOSSÁRIO ══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-tag">Capítulo 12</div>
+    <h2>Glossário</h2>
+    <p class="section-desc">Definição dos principais termos e conceitos da plataforma.</p>
+  </div>
+
+  <dl>
+    <div class="glossary-item">
+      <dt>Centro de Custo (CC)</dt>
+      <dd>Divisão financeira dentro de uma empresa que agrupa os custos por área ou projeto. Ex: "Leilões Externos", "Produção Estúdio".</dd>
+    </div>
+    <div class="glossary-item">
+      <dt>Diária de Viagem</dt>
+      <dd>Valor pago por dia de deslocamento ou execução de evento externo. Padrão: R$200/dia. Dois externos no mesmo dia = R$300 dividido proporcional.</dd>
+    </div>
+    <div class="glossary-item">
+      <dt>Escala</dt>
+      <dd>Atribuição de um operador a um evento específico, com data, função, turno e possíveis dias de viagem.</dd>
+    </div>
+    <div class="glossary-item">
+      <dt>Evento Externo</dt>
+      <dd>Leilão realizado fora do estúdio, no local do cliente. Gera diária de viagem automaticamente e ativa o módulo de Planejamento (viagem/hotel/veículo).</dd>
+    </div>
+    <div class="glossary-item">
+      <dt>Faixa de Horas</dt>
+      <dd>Intervalo de duração (ex: 8h–12h) que determina o valor base do pagamento do operador. Diferenciado por tipo de dia (útil vs. FDS/Feriado).</dd>
+    </div>
+    <div class="glossary-item">
+      <dt>Freelancer N1 / N2</dt>
+      <dd>Tipos de contrato de prestação de serviços. N1 = cálculo por faixa de horas; N2 = valor fixo configurado individualmente.</dd>
+    </div>
+    <div class="glossary-item">
+      <dt>Meio-Turno</dt>
+      <dd>Divisão de um evento de painel entre dois operadores, com horário de troca definido. O sistema calcula proporcionalmente o valor de cada um.</dd>
+    </div>
+    <div class="glossary-item">
+      <dt>Operador de Painel</dt>
+      <dd>Profissional que opera o software de leilão (painel RemateWeb) em estúdio. Acessa eventos, escala e operação ao vivo, mas não dados financeiros detalhados.</dd>
+    </div>
+    <div class="glossary-item">
+      <dt>Planejamento de Evento</dt>
+      <dd>Seção do evento externo com: data/hora de saída e retorno, veículo (aluguel, próprio, van), hotel (check-in/out, diária), checklist de tarefas.</dd>
+    </div>
+    <div class="glossary-item">
+      <dt>RemateWeb</dt>
+      <dd>Plataforma de leilões online integrada ao GestRW. Os leilões são importados via API usando token OAuth. Empresa principal do grupo.</dd>
+    </div>
+  </dl>
+
+  <div style="margin-top:48px; text-align:center; color:var(--muted); font-size:12px; border-top:1px solid var(--border); padding-top:24px;">
+    <p><strong>GestRW · Manual da Plataforma</strong></p>
+    <p style="margin-top:4px;">RemateWeb · Documento interno · 2025</p>
+    <p style="margin-top:4px;">Para suporte técnico, fale com a equipe de desenvolvimento.</p>
+  </div>
+</div>
+
+</body>
+</html>
