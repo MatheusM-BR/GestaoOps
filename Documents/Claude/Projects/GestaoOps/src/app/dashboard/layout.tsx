@@ -33,30 +33,31 @@ interface NavItem {
   href: string;
   icon: React.ElementType;
   roles?: SystemRole[]; // undefined = all management roles
+  group?: string;       // section label shown above the first item of a group
 }
 
 // Full nav for management roles
 const managementNav: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Eventos', href: '/dashboard/eventos', icon: Gavel },
-  { label: 'Operadores', href: '/dashboard/operadores', icon: Users, roles: ['admin'] },
+  { label: 'Eventos', href: '/dashboard/eventos', icon: Gavel, group: 'Operação' },
   { label: 'Escala', href: '/dashboard/escala-mensal', icon: LayoutGrid },
   { label: 'Calendário', href: '/dashboard/calendario', icon: CalendarDays },
-  { label: 'Financeiro', href: '/dashboard/financeiro', icon: DollarSign, roles: ['admin', 'ceo', 'financeiro'] },
-  { label: 'Exportação', href: '/dashboard/exportacao', icon: FileSpreadsheet, roles: ['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo'] },
   { label: 'Operação ao Vivo', href: '/dashboard/operacao', icon: Radio, roles: ['admin', 'ceo', 'gestor', 'operador_painel', 'administrativo'] },
-  { label: 'Notificações', href: '/dashboard/notificacoes', icon: Bell, roles: ['admin', 'ceo', 'gestor'] },
-  { label: 'Importar Planilhas', href: '/dashboard/importar', icon: FileSpreadsheet, roles: ['admin'] },
+  { label: 'Financeiro', href: '/dashboard/financeiro', icon: DollarSign, roles: ['admin', 'ceo', 'financeiro'], group: 'Financeiro' },
+  { label: 'Exportação', href: '/dashboard/exportacao', icon: FileSpreadsheet, roles: ['admin', 'ceo', 'gestor', 'financeiro', 'comercial', 'administrativo'] },
+  { label: 'Operadores', href: '/dashboard/operadores', icon: Users, roles: ['admin'], group: 'Administração' },
   { label: 'Configurações', href: '/dashboard/configuracoes', icon: Settings, roles: ['admin'] },
+  { label: 'Importar Planilhas', href: '/dashboard/importar', icon: FileSpreadsheet, roles: ['admin'] },
+  { label: 'Notificações', href: '/dashboard/notificacoes', icon: Bell, roles: ['admin', 'ceo', 'gestor'] },
   { label: 'Downloader', href: '/dashboard/downloader', icon: Download },
 ];
 
 // Nav padrão para operadores de campo/freelancers.
 const operatorNav: NavItem[] = [
   { label: 'Meus Serviços', href: '/dashboard', icon: ClipboardList },
-  { label: 'Minha Escala', href: '/dashboard/minha-escala', icon: Calendar },
+  { label: 'Minha Escala', href: '/dashboard/minha-escala', icon: Calendar, group: 'Agenda' },
   { label: 'Leilões da Empresa', href: '/dashboard/calendario', icon: CalendarDays },
-  { label: 'Meus Pagamentos', href: '/dashboard/meus-pagamentos', icon: DollarSign },
+  { label: 'Meus Pagamentos', href: '/dashboard/meus-pagamentos', icon: DollarSign, group: 'Conta' },
   { label: 'Meu Perfil', href: '/dashboard/meu-perfil', icon: UserCircle },
   { label: 'Downloader', href: '/dashboard/downloader', icon: Download },
 ];
@@ -287,49 +288,51 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         <nav className="sidebar-nav">
-          <div className="sidebar-section">
-            {isManagement ? 'Gestão' : 'Operador'}
-          </div>
-          {nav.map((item) => {
+          {nav.map((item, idx) => {
             const Icon = item.icon;
             const isActive = item.href === '/dashboard'
               ? pathname === '/dashboard'
               : pathname.startsWith(item.href);
+            const showGroup = item.group && (idx === 0 || nav[idx - 1]?.group !== item.group);
 
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => setSidebarOpen(false)}
-                title={item.label}
-              >
-                <Icon size={20} className="nav-icon" />
-                <span className="nav-label">{item.label}</span>
-              </Link>
+              <div key={item.href}>
+                {showGroup && (
+                  <div className="sidebar-section nav-label">{item.group}</div>
+                )}
+                <Link
+                  href={item.href}
+                  className={`nav-item ${isActive ? 'active' : ''}`}
+                  onClick={() => setSidebarOpen(false)}
+                  title={item.label}
+                >
+                  <Icon size={18} className="nav-icon" />
+                  <span className="nav-label">{item.label}</span>
+                </Link>
+              </div>
             );
           })}
         </nav>
 
         <div className="sidebar-footer">
-          <div className="sidebar-user" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+          <div className="sidebar-user" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', padding: '8px', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)' }}>
             <div
-              className="avatar"
-              style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }}
+              className="avatar avatar-sm"
+              style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))', flexShrink: 0 }}
             >
               {initials}
             </div>
             <div className="nav-label" style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {profile?.name || 'Usuário'}
+              <p style={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-primary)' }}>
+                {profile?.name?.split(' ')[0] || 'Usuário'}
               </p>
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              <p style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                 {roleLabel}
               </p>
             </div>
           </div>
           <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={handleSignOut} title="Sair">
-            <LogOut size={16} />
+            <LogOut size={15} />
             <span className="nav-label">Sair</span>
           </button>
         </div>
@@ -338,19 +341,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main Content */}
       <div className="main-content">
         <header className="topbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button className="mobile-menu-btn" onClick={() => setSidebarOpen(true)}>
               <Menu size={22} />
             </button>
             <button className="sidebar-collapse-btn" onClick={toggleCollapsed} title={collapsed ? 'Expandir menu' : 'Recolher menu'} aria-label="Recolher menu">
               <PanelLeft size={20} />
             </button>
-            <h1 className="topbar-title">{pageTitle}</h1>
+            <div>
+              <h1 className="topbar-title">{pageTitle}</h1>
+            </div>
           </div>
           <div className="topbar-actions">
-            <span className={`badge ${isManagement ? 'badge-primary' : 'badge-accent'}`}>
-              {roleLabel}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div
+                className="avatar avatar-sm"
+                style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))', fontSize: '12px', fontWeight: 700 }}
+              >
+                {initials}
+              </div>
+              <div className="hide-on-mobile" style={{ lineHeight: 1.2 }}>
+                <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{profile?.name?.split(' ')[0]}</p>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{roleLabel}</p>
+              </div>
+            </div>
           </div>
         </header>
 

@@ -198,7 +198,7 @@ export default function EscalaPublicPage() {
             <img src="/logo-remateweb.svg" alt="RemateWeb" style={{ width: 40, height: 40 }} />
             <div>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>
-              <span style={{ color: '#2980a4' }}>GestRW</span> — Escala
+              <span style={{ color: '#2F6FED' }}>GestRW</span> — Escala
             </h1>
             <p style={{ margin: '4px 0 0', color: '#9aa3b2', fontSize: 13 }}>
               {formatDate(selectedDate + 'T12:00:00')}
@@ -245,7 +245,7 @@ export default function EscalaPublicPage() {
       <div style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 20px' }}>
         {loading && (
           <div style={{ textAlign: 'center', padding: 60, color: '#9aa3b2' }}>
-            <div style={{ width: 32, height: 32, border: '3px solid #2a2f3a', borderTopColor: '#2980a4', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+            <div style={{ width: 32, height: 32, border: '3px solid #2a2f3a', borderTopColor: '#2F6FED', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
             Carregando...
           </div>
         )}
