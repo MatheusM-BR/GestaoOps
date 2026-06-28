@@ -8,7 +8,9 @@ import { getCostCenters } from '@/services/costCenters';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { calculateOperatorPayment, toSafeDate } from '@/lib/payment-engine';
 import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE } from '@/types/event';
-import { Operator } from '@/types/operator';
+import { Operator, PaymentProfile } from '@/types/operator';
+import { getPaymentProfiles } from '@/services/paymentProfiles';
+import { resolvePaymentRules } from '@/lib/resolve-payment-rules';
 import { Company, CostCenter } from '@/types/company';
 import { format, parseISO, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -35,6 +37,7 @@ export default function FinanceiroPage() {
   const [defaultRulesN2, setDefaultRulesN2] = useState<any>(null);
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({});
   const [holidays, setHolidays] = useState<any[]>([]);
+  const [paymentProfiles, setPaymentProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
 
   const [periodStart, setPeriodStart] = useState(() => {
     const d = new Date();
@@ -50,7 +53,7 @@ export default function FinanceiroPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [evts, ops, funcDoc, n1Doc, n2Doc, svcDoc, hols, comps, ccs] = await Promise.all([
+        const [evts, ops, funcDoc, n1Doc, n2Doc, svcDoc, hols, comps, ccs, profs] = await Promise.all([
           getEvents(),
           getOperators(),
           getDocument<any>('settings', 'default_rules_funcionario').catch(() => null),
@@ -60,6 +63,7 @@ export default function FinanceiroPage() {
           getCollection<any>('holidays').catch(() => []),
           getCompanies().catch(() => []),
           getCostCenters().catch(() => []),
+          getPaymentProfiles().catch(() => [] as (PaymentProfile & { id: string })[]),
         ]);
         setEvents(evts);
         setOperators(ops);
@@ -68,6 +72,7 @@ export default function FinanceiroPage() {
         if (funcDoc) setDefaultRulesFunc({ ...funcDoc, contractType: 'funcionario' });
         if (n1Doc) setDefaultRulesN1({ ...n1Doc, contractType: 'freelancer_n1' });
         if (n2Doc) setDefaultRulesN2({ ...n2Doc, contractType: 'freelancer_n2' });
+        setPaymentProfiles(profs);
         if (svcDoc?.catalog) {
           const { serviceFixedValues } = await import('@/types/service');
           setFixedValues(serviceFixedValues(svcDoc.catalog));
@@ -98,18 +103,7 @@ export default function FinanceiroPage() {
     (evt.assignments || []).forEach((a) => {
       const op = operators.find((o) => o.id === a.operatorId);
 
-      // Regras do operador — usa custom se tiver hourRanges válidos; caso contrário cai no padrão.
-      let rules = (op?.paymentRules?.hourRanges?.length ?? 0) > 0 ? op?.paymentRules : null;
-      if (!rules && op?.contractType) {
-        if (op.contractType === 'funcionario') rules = defaultRulesFunc;
-        else if (op.contractType === 'freelancer_n1') rules = defaultRulesN1;
-        else if (op.contractType === 'freelancer_n2') rules = defaultRulesN2;
-      }
-      // Se tem regra customizada mas sem hourRanges, herda hourRanges do padrão
-      if (op?.paymentRules && !(op.paymentRules.hourRanges?.length) && rules) {
-        rules = { ...rules, ...op.paymentRules, hourRanges: rules.hourRanges };
-      }
-
+      const rules = op ? resolvePaymentRules(op, paymentProfiles, defaultRulesFunc, defaultRulesN1, defaultRulesN2) : null;
       if (!rules) return;
 
       // Somente eventos onde ESTE operador está escalado (evita split errado de diária múltipla)
@@ -202,7 +196,7 @@ export default function FinanceiroPage() {
       const dislocDays = travelBefore + travelAfter;
 
       const op = operators.find((o) => o.id === a.operatorId);
-      const rules = (op?.paymentRules?.hourRanges?.length ?? 0) > 0 ? op?.paymentRules : null;
+      const rules = op ? resolvePaymentRules(op, paymentProfiles, defaultRulesFunc, defaultRulesN1, defaultRulesN2) : null;
       const dailyRate = (rules?.dailyTravel) ?? 200;
       const dailyRateMultiple = (rules?.dailyTravelMultiple) ?? 300;
 

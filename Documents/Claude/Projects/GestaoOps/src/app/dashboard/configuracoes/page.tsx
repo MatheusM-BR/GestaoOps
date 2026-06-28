@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Settings, Key, Globe, Calendar as CalendarIcon, Save, Plus, Trash2, CheckCircle, Users, Receipt, Briefcase, Play, Radio, ShieldCheck, Search } from 'lucide-react';
+import { Settings, Key, Globe, Calendar as CalendarIcon, Save, Plus, Trash2, CheckCircle, Users, Receipt, Briefcase, Play, Radio, ShieldCheck, Search, Tag } from 'lucide-react';
 import { getAuditLog, AuditEntry, AuditAction } from '@/services/auditLog';
 import { format, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -9,7 +9,8 @@ import { authenticate, setTokenManually } from '@/services/remateweb-api';
 import { addDocument, getCollection, deleteDocument, setDocument, getDocument } from '@/lib/firestore';
 import { useCatalogs } from '@/lib/useCatalogs';
 import { DEFAULT_PAYMENT_CONDITION } from '@/types/event';
-import { ContractType, HourRange } from '@/types/operator';
+import { ContractType, HourRange, PaymentProfile } from '@/types/operator';
+import { getPaymentProfiles, addPaymentProfile, updatePaymentProfile, deletePaymentProfile } from '@/services/paymentProfiles';
 import {
   ServiceDef, ServiceNature, ServicesSettings, SERVICE_NATURE_LABELS,
   DEFAULT_SERVICE_CATALOG, serviceDefFromName, managedServiceNames,
@@ -26,7 +27,7 @@ interface Holiday {
 }
 
 export default function ConfiguracoesPage() {
-  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'pagamentos' | 'catalogos' | 'modelos' | 'fiscal' | 'api' | 'feriados' | 'auditoria' | 'empresas'>('funcoes');
+  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'pagamentos' | 'catalogos' | 'modelos' | 'perfis' | 'fiscal' | 'api' | 'feriados' | 'auditoria' | 'empresas'>('funcoes');
 
   // Condições de pagamento padrão (dropdown no cadastro de leilão)
   const [payConds, setPayConds] = useState<string[]>([]);
@@ -65,6 +66,13 @@ export default function ConfiguracoesPage() {
   const [rulesWeekendHolidayBonus, setRulesWeekendHolidayBonus] = useState(0);
   const [rulesHourRanges, setRulesHourRanges] = useState<HourRange[]>([]);
   const [rulesSaving, setRulesSaving] = useState(false);
+
+  // Payment Profiles
+  const [profiles, setProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
+  const [editingProfile, setEditingProfile] = useState<Partial<PaymentProfile> & { id?: string } | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileHourRanges, setProfileHourRanges] = useState<HourRange[]>([]);
 
   // Holidays
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -332,6 +340,93 @@ export default function ConfiguracoesPage() {
     setRulesHourRanges(updated);
   };
 
+  // --- Payment Profiles ---
+  const loadProfiles = useCallback(async () => {
+    try {
+      const list = await getPaymentProfiles();
+      setProfiles(list);
+      setProfilesLoaded(true);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  const openNewProfile = () => {
+    const defaultRanges: HourRange[] = [
+      { minHours: 0,  maxHours: 8,  weekdayValue: 100, weekendHolidayValue: 130 },
+      { minHours: 8,  maxHours: 12, weekdayValue: 150, weekendHolidayValue: 195 },
+      { minHours: 12, maxHours: 24, weekdayValue: 200, weekendHolidayValue: 260 },
+    ];
+    setProfileHourRanges(defaultRanges);
+    setEditingProfile({ name: '', contractType: 'freelancer_n1', dailyTravel: 200, dailyTravelMultiple: 300, weekendHolidayBonus: 0, restDayExtra: 0, isActive: true });
+  };
+
+  const openEditProfile = (p: PaymentProfile & { id: string }) => {
+    setProfileHourRanges(p.hourRanges || []);
+    setEditingProfile({ ...p });
+  };
+
+  const cancelProfileEdit = () => {
+    setEditingProfile(null);
+    setProfileHourRanges([]);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!editingProfile?.name?.trim()) { showToast('Informe o nome do perfil.', 'error'); return; }
+    setProfileSaving(true);
+    try {
+      const data = {
+        name: editingProfile.name!.trim(),
+        description: editingProfile.description || '',
+        contractType: (editingProfile.contractType || 'freelancer_n1') as ContractType,
+        hourRanges: profileHourRanges,
+        dailyTravel: editingProfile.dailyTravel ?? 200,
+        dailyTravelMultiple: editingProfile.dailyTravelMultiple ?? 300,
+        weekendHolidayBonus: editingProfile.weekendHolidayBonus ?? 0,
+        restDayExtra: editingProfile.restDayExtra ?? 0,
+        isActive: editingProfile.isActive !== false,
+      };
+      if (editingProfile.id) {
+        await updatePaymentProfile(editingProfile.id, data);
+      } else {
+        await addPaymentProfile(data);
+      }
+      await loadProfiles();
+      setEditingProfile(null);
+      setProfileHourRanges([]);
+      showToast('Perfil salvo!');
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao salvar perfil.', 'error');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleDeleteProfile = async (id: string) => {
+    if (!confirm('Excluir este perfil? Operadores vinculados voltarão a usar as regras padrão.')) return;
+    try {
+      await deletePaymentProfile(id);
+      await loadProfiles();
+      showToast('Perfil excluído.');
+    } catch {
+      showToast('Erro ao excluir perfil.', 'error');
+    }
+  };
+
+  const addProfileRange = () => {
+    const last = profileHourRanges[profileHourRanges.length - 1];
+    setProfileHourRanges([...profileHourRanges, { minHours: last?.maxHours || 0, maxHours: (last?.maxHours || 0) + 4, weekdayValue: 0, weekendHolidayValue: 0 }]);
+  };
+
+  const removeProfileRange = (idx: number) => setProfileHourRanges(profileHourRanges.filter((_, i) => i !== idx));
+
+  const updateProfileRange = (idx: number, field: keyof HourRange, value: number) => {
+    const updated = [...profileHourRanges];
+    updated[idx] = { ...updated[idx], [field]: value };
+    setProfileHourRanges(updated);
+  };
+
   // --- API ---
   const handleAuthenticate = async () => {
     setApiStatus('loading');
@@ -492,6 +587,7 @@ export default function ConfiguracoesPage() {
     if (activeTab === 'estudios' && !studiosLoaded) loadStudios();
     if (activeTab === 'pagamentos' && !payCondsLoaded) loadPayConds();
     if (activeTab === 'modelos') loadDefaultRules(selectedContractType);
+    if (activeTab === 'perfis' && !profilesLoaded) loadProfiles();
     if (activeTab === 'feriados' && !holidaysLoaded) loadHolidays();
     if (activeTab === 'auditoria' && !auditLoaded) loadAudit();
     if (activeTab === 'empresas' && !empresasLoaded) loadEmpresas();
@@ -507,7 +603,7 @@ export default function ConfiguracoesPage() {
         } catch { setFiscalLoaded(true); }
       })();
     }
-  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, payCondsLoaded, selectedContractType, holidaysLoaded, fiscalLoaded, auditLoaded, empresasLoaded, loadRoles, loadServices, loadStudios, loadPayConds, loadDefaultRules, loadAudit, loadEmpresas]);
+  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, payCondsLoaded, selectedContractType, profilesLoaded, holidaysLoaded, fiscalLoaded, auditLoaded, empresasLoaded, loadRoles, loadServices, loadStudios, loadPayConds, loadDefaultRules, loadProfiles, loadAudit, loadEmpresas]);
 
   return (
     <div>
@@ -544,6 +640,10 @@ export default function ConfiguracoesPage() {
         <button className={`tab ${activeTab === 'modelos' ? 'active' : ''}`} onClick={() => setActiveTab('modelos')}>
           <Briefcase size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
           Modelos de Ganhos
+        </button>
+        <button className={`tab ${activeTab === 'perfis' ? 'active' : ''}`} onClick={() => setActiveTab('perfis')}>
+          <Tag size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+          Perfis de Pagamento
         </button>
         <button className={`tab ${activeTab === 'fiscal' ? 'active' : ''}`} onClick={() => setActiveTab('fiscal')}>
           <Receipt size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
@@ -915,6 +1015,176 @@ export default function ConfiguracoesPage() {
               {rulesSaving ? <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} /> : <><Save size={16} /> Salvar Modelo de Ganhos</>}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Perfis de Pagamento Tab */}
+      {activeTab === 'perfis' && (
+        <div className="animate-in">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div>
+              <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>Perfis de Pagamento</h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                Crie perfis reutilizáveis (ex: Freelancer N1, Freelancer N2) e atribua-os aos operadores para facilitar ajustes de contrato.
+              </p>
+            </div>
+            {!editingProfile && (
+              <button className="btn btn-primary" onClick={openNewProfile}>
+                <Plus size={16} /> Novo Perfil
+              </button>
+            )}
+          </div>
+
+          {/* Profile list */}
+          {profiles.length === 0 && !editingProfile && (
+            <div className="card" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>
+              Nenhum perfil cadastrado. Clique em <strong>Novo Perfil</strong> para começar.
+            </div>
+          )}
+
+          {profiles.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: editingProfile ? '24px' : '0' }}>
+              {profiles.map((p) => (
+                <div key={p.id} className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                      <span style={{ fontWeight: 600, fontSize: '15px' }}>{p.name}</span>
+                      <span className={`badge ${p.isActive ? 'badge-success' : 'badge-warning'}`}>
+                        {p.isActive ? 'Ativo' : 'Inativo'}
+                      </span>
+                      <span className="badge badge-info">
+                        {p.contractType === 'funcionario' ? 'CLT' : p.contractType === 'freelancer_n1' ? 'Freelancer N1' : 'Freelancer N2'}
+                      </span>
+                    </div>
+                    {p.description && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{p.description}</p>}
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                      {p.hourRanges?.length || 0} faixa(s) · Diária R$ {p.dailyTravel} / R$ {p.dailyTravelMultiple}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => openEditProfile(p)} disabled={!!editingProfile}>
+                      Editar
+                    </button>
+                    <button className="btn btn-ghost btn-icon btn-sm" onClick={() => handleDeleteProfile(p.id)} style={{ color: 'var(--error)' }} disabled={!!editingProfile}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Profile form */}
+          {editingProfile && (
+            <div className="card animate-in" style={{ marginTop: '8px' }}>
+              <h4 style={{ fontSize: '15px', marginBottom: '20px' }}>
+                {editingProfile.id ? `Editar: ${editingProfile.name}` : 'Novo Perfil'}
+              </h4>
+
+              <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                  <label>Nome do Perfil *</label>
+                  <input
+                    className="input"
+                    placeholder="Ex: Freelancer N2"
+                    value={editingProfile.name || ''}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, name: e.target.value })}
+                  />
+                </div>
+                <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                  <label>Descrição (opcional)</label>
+                  <input
+                    className="input"
+                    placeholder="Ex: Josemar, Adonai, Henrique — rates N2"
+                    value={editingProfile.description || ''}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, description: e.target.value })}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Tipo de Contrato</label>
+                  <select
+                    className="input"
+                    value={editingProfile.contractType || 'freelancer_n1'}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, contractType: e.target.value as ContractType })}
+                  >
+                    <option value="funcionario">Funcionário (CLT)</option>
+                    <option value="freelancer_n1">Freelancer N1</option>
+                    <option value="freelancer_n2">Freelancer N2</option>
+                  </select>
+                </div>
+                <div className="input-group" style={{ display: 'flex', alignItems: 'flex-end', gap: '10px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0, paddingBottom: '8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={editingProfile.isActive !== false}
+                      onChange={(e) => setEditingProfile({ ...editingProfile, isActive: e.target.checked })}
+                      style={{ width: '16px', height: '16px' }}
+                    />
+                    Perfil Ativo
+                  </label>
+                </div>
+              </div>
+
+              <h5 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '12px' }}>Diárias de Viagem / Evento Externo</h5>
+              <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '20px', maxWidth: '500px' }}>
+                <div className="input-group">
+                  <label>Diária simples (R$)</label>
+                  <input className="input" type="number" value={editingProfile.dailyTravel ?? 200} onChange={(e) => setEditingProfile({ ...editingProfile, dailyTravel: Number(e.target.value) })} />
+                </div>
+                <div className="input-group">
+                  <label>Diária múltipla (R$)</label>
+                  <input className="input" type="number" value={editingProfile.dailyTravelMultiple ?? 300} onChange={(e) => setEditingProfile({ ...editingProfile, dailyTravelMultiple: Number(e.target.value) })} />
+                </div>
+                <div className="input-group">
+                  <label>Extra dia de folga (R$)</label>
+                  <input className="input" type="number" value={editingProfile.restDayExtra ?? 0} onChange={(e) => setEditingProfile({ ...editingProfile, restDayExtra: Number(e.target.value) })} />
+                </div>
+              </div>
+
+              <h5 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '12px' }}>Tabela de Faixa de Horas</h5>
+              <div className="table-container" style={{ marginBottom: '12px' }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Mín. Horas (≥)</th>
+                      <th>Máx. Horas (&lt;)</th>
+                      <th>Valor Dia Útil (R$)</th>
+                      <th>Valor FDS/Feriado (R$)</th>
+                      <th style={{ width: '50px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {profileHourRanges.map((range, idx) => (
+                      <tr key={idx}>
+                        <td><input className="input" type="number" value={range.minHours} onChange={(e) => updateProfileRange(idx, 'minHours', Number(e.target.value))} style={{ width: '80px' }} /></td>
+                        <td><input className="input" type="number" value={range.maxHours} onChange={(e) => updateProfileRange(idx, 'maxHours', Number(e.target.value))} style={{ width: '80px' }} /></td>
+                        <td><input className="input" type="number" value={range.weekdayValue} onChange={(e) => updateProfileRange(idx, 'weekdayValue', Number(e.target.value))} style={{ width: '120px' }} /></td>
+                        <td><input className="input" type="number" value={range.weekendHolidayValue} onChange={(e) => updateProfileRange(idx, 'weekendHolidayValue', Number(e.target.value))} style={{ width: '120px' }} /></td>
+                        <td>
+                          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => removeProfileRange(idx)} style={{ color: 'var(--error)' }}>
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {profileHourRanges.length === 0 && (
+                      <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Sem faixas — adicione abaixo</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={addProfileRange} style={{ marginBottom: '24px' }}>
+                <Plus size={14} /> Adicionar faixa
+              </button>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="btn btn-ghost" onClick={cancelProfileEdit}>Cancelar</button>
+                <button className="btn btn-primary" onClick={handleSaveProfile} disabled={profileSaving}>
+                  {profileSaving ? <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} /> : <><Save size={16} /> Salvar Perfil</>}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

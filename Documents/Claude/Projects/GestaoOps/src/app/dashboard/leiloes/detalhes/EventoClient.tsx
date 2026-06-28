@@ -10,7 +10,9 @@ import { Company, CostCenter } from '@/types/company';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense, ExpenseCategory, EventPlanning, PlanningVehicle, PlanningHotel, PlanningChecklist, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration, eventStatusBadge } from '@/types/event';
 import { useCatalogs } from '@/lib/useCatalogs';
-import { Operator, isOperatorRestDay } from '@/types/operator';
+import { Operator, PaymentProfile, isOperatorRestDay } from '@/types/operator';
+import { getPaymentProfiles } from '@/services/paymentProfiles';
+import { resolvePaymentRules } from '@/lib/resolve-payment-rules';
 import { useAuth } from '@/lib/auth-context';
 import { logAudit } from '@/services/auditLog';
 import { isInternalService, isInternalEvent, calculateOperatorPayment } from '@/lib/payment-engine';
@@ -103,6 +105,7 @@ export default function EventoDetailPage() {
   const [defaultRulesN1, setDefaultRulesN1] = useState<any>(null);
   const [defaultRulesN2, setDefaultRulesN2] = useState<any>(null);
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({});
+  const [paymentProfiles, setPaymentProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
 
   // Service form
   const [newService, setNewService] = useState('');
@@ -277,17 +280,19 @@ export default function EventoDetailPage() {
       console.error('Erro ao carregar feriados:', err);
     }
 
-    // Load default payment rules
+    // Load default payment rules + profiles
     try {
-      const [funcDoc, n1Doc, n2Doc, svcDoc] = await Promise.all([
+      const [funcDoc, n1Doc, n2Doc, svcDoc, profs] = await Promise.all([
         getDocument<any>('settings', 'default_rules_funcionario').catch(() => null),
         getDocument<any>('settings', 'default_rules_freelancer_n1').catch(() => null),
         getDocument<any>('settings', 'default_rules_freelancer_n2').catch(() => null),
         getDocument<any>('settings', 'services').catch(() => null),
+        getPaymentProfiles().catch(() => [] as (PaymentProfile & { id: string })[]),
       ]);
       if (funcDoc) setDefaultRulesFunc({ ...funcDoc, contractType: 'funcionario' });
       if (n1Doc) setDefaultRulesN1({ ...n1Doc, contractType: 'freelancer_n1' });
       if (n2Doc) setDefaultRulesN2({ ...n2Doc, contractType: 'freelancer_n2' });
+      setPaymentProfiles(profs);
       if (svcDoc?.catalog) {
         const { serviceFixedValues } = await import('@/types/service');
         setFixedValues(serviceFixedValues(svcDoc.catalog));
@@ -572,15 +577,7 @@ export default function EventoDetailPage() {
   // externos a diária (R$ 200 padrão) vem do próprio motor de pagamento.
   const teamPayments = (event.assignments || []).map((a) => {
     const op = operators.find((o) => o.id === a.operatorId);
-    let rules = (op?.paymentRules?.hourRanges?.length ?? 0) > 0 ? op?.paymentRules : null;
-    if (!rules && op?.contractType) {
-      if (op.contractType === 'funcionario') rules = defaultRulesFunc;
-      else if (op.contractType === 'freelancer_n1') rules = defaultRulesN1;
-      else if (op.contractType === 'freelancer_n2') rules = defaultRulesN2;
-    }
-    if (op?.paymentRules && !(op.paymentRules.hourRanges?.length) && rules) {
-      rules = { ...rules, ...op.paymentRules, hourRanges: rules.hourRanges };
-    }
+    const rules = op ? resolvePaymentRules(op, paymentProfiles, defaultRulesFunc, defaultRulesN1, defaultRulesN2) : null;
     // Fallback mínimo: permite calcular diária de externo mesmo sem regras no Firestore
     const effectiveRules = rules || {
       hourRanges: [],

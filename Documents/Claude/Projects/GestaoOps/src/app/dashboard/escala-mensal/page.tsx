@@ -5,7 +5,9 @@ import { getEvents, assignOperator, removeAssignment, updateEvent } from '@/serv
 import { getActiveOperators, getOperatorByUid } from '@/services/operators';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { GestaoEvent, EventAssignment } from '@/types/event';
-import { Operator, PaymentRules, isOperatorRestDay } from '@/types/operator';
+import { Operator, PaymentRules, PaymentProfile, isOperatorRestDay } from '@/types/operator';
+import { getPaymentProfiles } from '@/services/paymentProfiles';
+import { resolvePaymentRules } from '@/lib/resolve-payment-rules';
 import { calculateOperatorPayment, calculatePanelShiftValue } from '@/lib/payment-engine';
 import { Holiday } from '@/types/payment';
 import { getScheduleNotes, setScheduleNote, deleteScheduleNote } from '@/services/scheduleNotes';
@@ -78,6 +80,7 @@ export default function EscalaMensalPage() {
   const [rulesFunc, setRulesFunc] = useState<PaymentRules | null>(null);
   const [rulesN1, setRulesN1] = useState<PaymentRules | null>(null);
   const [rulesN2, setRulesN2] = useState<PaymentRules | null>(null);
+  const [paymentProfiles, setPaymentProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({});
   const [mtValue, setMtValue] = useState(MT_DEFAULT_VALUE);
   const [notes, setNotes] = useState<Map<string, string>>(new Map()); // `${opId}|${dayKey}` → rótulo manual
@@ -114,7 +117,7 @@ export default function EscalaMensalPage() {
     try {
       const myOp = user ? await getOperatorByUid(user.uid).catch(() => null) : null;
       if (myOp) setMyOperatorId(myOp.id);
-      const [evts, ops, rolesDoc, funcDoc, n1Doc, n2Doc, svcDoc, mtDoc, hols, schedNotes, pShifts] = await Promise.all([
+      const [evts, ops, rolesDoc, funcDoc, n1Doc, n2Doc, svcDoc, mtDoc, hols, schedNotes, pShifts, profs] = await Promise.all([
         getEvents().catch(() => [] as EventWithId[]),
         getActiveOperators().catch(() => [] as OperatorWithId[]),
         getDocument<{ list: string[] }>('settings', 'roles').catch(() => null),
@@ -126,6 +129,7 @@ export default function EscalaMensalPage() {
         getCollection<{ date: string }>('holidays').catch(() => []),
         getScheduleNotes().catch(() => []),
         getPanelShifts().catch(() => []),
+        getPaymentProfiles().catch(() => [] as (PaymentProfile & { id: string })[]),
       ]);
       setEvents(evts);
       setOperators(ops);
@@ -137,6 +141,7 @@ export default function EscalaMensalPage() {
       if (funcDoc) setRulesFunc({ ...funcDoc, contractType: 'funcionario' });
       if (n1Doc) setRulesN1({ ...n1Doc, contractType: 'freelancer_n1' });
       if (n2Doc) setRulesN2({ ...n2Doc, contractType: 'freelancer_n2' });
+      setPaymentProfiles(profs);
       if (mtDoc?.value) setMtValue(mtDoc.value);
       if (svcDoc?.catalog) {
         const { serviceFixedValues } = await import('@/types/service');
@@ -168,20 +173,10 @@ export default function EscalaMensalPage() {
 
   const isHoliday = useCallback((d: Date) => holidays.some((h) => h.date === dayKey(d)), [holidays]);
 
-  // Resolve a tabela de regras de um operador (custom ou padrão por contrato).
   const resolveRules = useCallback((op?: OperatorWithId): PaymentRules | null => {
     if (!op) return null;
-    let rules: PaymentRules | null = (op.paymentRules?.hourRanges?.length ?? 0) > 0 ? op.paymentRules! : null;
-    if (!rules) {
-      if (op.contractType === 'funcionario') rules = rulesFunc;
-      else if (op.contractType === 'freelancer_n1') rules = rulesN1;
-      else if (op.contractType === 'freelancer_n2') rules = rulesN2;
-    }
-    if (op.paymentRules && !(op.paymentRules.hourRanges?.length) && rules) {
-      rules = { ...rules, ...op.paymentRules, hourRanges: rules.hourRanges };
-    }
-    return rules;
-  }, [rulesFunc, rulesN1, rulesN2]);
+    return resolvePaymentRules(op, paymentProfiles, rulesFunc, rulesN1, rulesN2);
+  }, [paymentProfiles, rulesFunc, rulesN1, rulesN2]);
 
   const operatorsById = useMemo(() => new Map(operators.map((o) => [o.id, o])), [operators]);
 

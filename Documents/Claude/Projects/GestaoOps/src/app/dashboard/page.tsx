@@ -9,7 +9,9 @@ import { getUserDashboard, setUserDashboard } from '@/services/userDashboard';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { calculateOperatorPayment } from '@/lib/payment-engine';
 import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, eventStatusBadge, hasEventOccurred } from '@/types/event';
-import { Operator, PaymentRules } from '@/types/operator';
+import { Operator, PaymentRules, PaymentProfile } from '@/types/operator';
+import { getPaymentProfiles } from '@/services/paymentProfiles';
+import { resolvePaymentRules } from '@/lib/resolve-payment-rules';
 import { Holiday } from '@/types/payment';
 import { ServicesSettings, serviceFixedValues } from '@/types/service';
 import { format, isToday, isTomorrow, isThisWeek, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
@@ -51,13 +53,6 @@ interface DashCtx {
   estimatedEarnings: number;                // estimativa do mês do próprio operador
 }
 
-function resolveRules(op: OperatorWithId, rFunc: PaymentRules | null, rN1: PaymentRules | null, rN2: PaymentRules | null): PaymentRules | null {
-  if (op.paymentRules) return op.paymentRules;
-  if (op.contractType === 'funcionario') return rFunc;
-  if (op.contractType === 'freelancer_n1') return rN1;
-  if (op.contractType === 'freelancer_n2') return rN2;
-  return rFunc;
-}
 
 // ==================== COMPONENTES BASE ====================
 function StatCard({ label, value, sub, icon: Icon, color = 'var(--primary)' }: { label: string; value: string | number; sub?: string; icon: React.ElementType; color?: string }) {
@@ -592,7 +587,7 @@ export default function DashboardPage() {
       if (!user) return;
       try {
         const now = new Date();
-        const [allEvents, myOperator, operators, , rFunc, rN1, rN2, svc, hols, pref] = await Promise.all([
+        const [allEvents, myOperator, operators, , rFunc, rN1, rN2, svc, hols, pref, profs] = await Promise.all([
           getEvents(),
           getOperatorByUid(user.uid).catch(() => null),
           isManagement ? getOperators() : Promise.resolve([] as OperatorWithId[]),
@@ -603,6 +598,7 @@ export default function DashboardPage() {
           getDocument<ServicesSettings>('settings', 'services').catch(() => null),
           getCollection<Holiday>('holidays').catch(() => [] as Holiday[]),
           getUserDashboard(user.uid).catch(() => null),
+          getPaymentProfiles().catch(() => [] as (PaymentProfile & { id: string })[]),
         ]);
 
         const fixedValues = svc?.catalog ? serviceFixedValues(svc.catalog) : {};
@@ -621,7 +617,7 @@ export default function DashboardPage() {
           for (const evt of monthEvts) {
             for (const a of evt.assignments || []) {
               const op = operators.find((o) => o.id === a.operatorId);
-              const rules = op ? resolveRules(op, rFunc, rN1, rN2) : null;
+              const rules = op ? resolvePaymentRules(op, profs, rFunc, rN1, rN2) : null;
               let value = 0;
               if (op && rules) {
                 try { value = calculateOperatorPayment(evt, a, rules, hols, [], rN2, fixedValues).totalValue; } catch {}
@@ -637,7 +633,7 @@ export default function DashboardPage() {
         // Estimativa do próprio operador no mês.
         let estimatedEarnings = 0;
         if (myOperator) {
-          const rules = resolveRules(myOperator, rFunc, rN1, rN2);
+          const rules = resolvePaymentRules(myOperator, profs, rFunc, rN1, rN2);
           if (rules) {
             for (const evt of myEvents.filter((e) => isWithinInterval(toDate(e.date), monthRange(now)))) {
               const a = (evt.assignments || []).find((x) => x.operatorId === myOperator.id);

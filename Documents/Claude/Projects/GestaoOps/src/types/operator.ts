@@ -34,6 +34,21 @@ export interface PaymentRules {
   updatedAt: Date;
 }
 
+export interface PaymentProfile {
+  id?: string;
+  name: string;
+  description?: string;
+  contractType: ContractType;
+  hourRanges: HourRange[];
+  dailyTravel: number;
+  dailyTravelMultiple: number;
+  weekendHolidayBonus: number;
+  restDayExtra?: number;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface Operator {
   id: string;
   uid?: string; // Firebase Auth UID
@@ -47,6 +62,7 @@ export interface Operator {
   weeklyRestDay?: number | null;  // dia da semana de folga padrão (0=Dom ... 6=Sáb); null = sem folga fixa
   restDays?: string[];            // folgas avulsas / trocas (datas ISO yyyy-MM-dd)
   active: boolean;
+  paymentProfileId?: string;
   paymentRules?: PaymentRules;
   createdAt: Date;
   updatedAt: Date;

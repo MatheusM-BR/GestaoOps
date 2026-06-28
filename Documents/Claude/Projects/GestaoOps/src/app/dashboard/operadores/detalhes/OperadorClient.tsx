@@ -5,11 +5,12 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { logAudit } from '@/services/auditLog';
 import { getOperatorById, updateOperator, savePaymentRules } from '@/services/operators';
+import { getPaymentProfiles } from '@/services/paymentProfiles';
 import { getEventsByOperator } from '@/services/events';
 import { getCollection } from '@/lib/firestore';
 import { computeFolgaBalance, getTripRoute } from '@/lib/folgas';
 import { Holiday } from '@/types/payment';
-import { Operator, ContractType, HourRange, OperatorRole, OperatorFunction, OPERATOR_FUNCTION_LABELS, WEEKDAY_LABELS } from '@/types/operator';
+import { Operator, ContractType, HourRange, OperatorRole, OperatorFunction, PaymentProfile, OPERATOR_FUNCTION_LABELS, WEEKDAY_LABELS } from '@/types/operator';
 import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE, eventStatusBadge } from '@/types/event';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -58,6 +59,10 @@ export default function OperadorDetailPage() {
   const [restDays, setRestDays] = useState<string[]>([]);
   const [newRestDay, setNewRestDay] = useState('');
   const [active, setActive] = useState(true);
+
+  // Payment profiles
+  const [profiles, setProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
+  const [paymentProfileId, setPaymentProfileId] = useState<string | undefined>(undefined);
 
   // Payment rules
   const [dailyTravel, setDailyTravel] = useState(0);
@@ -112,11 +117,14 @@ export default function OperadorDetailPage() {
           setRestDayExtra(op.paymentRules.restDayExtra || 0);
           if (op.paymentRules.hourRanges?.length) setHourRanges(op.paymentRules.hourRanges);
         }
+        if (op.paymentProfileId) setPaymentProfileId(op.paymentProfileId);
 
-        const [evts, hols] = await Promise.all([
+        const [evts, hols, profs] = await Promise.all([
           getEventsByOperator(op.id),
           getCollection<Holiday>('holidays').catch(() => [] as Holiday[]),
+          getPaymentProfiles().catch(() => [] as (PaymentProfile & { id: string })[]),
         ]);
+        setProfiles(profs);
         setEvents(evts);
         setHolidays(hols as Holiday[]);
       } catch (err) {
@@ -150,16 +158,19 @@ export default function OperadorDetailPage() {
   const handleSavePayment = async () => {
     setSaving(true);
     try {
-      await savePaymentRules(id, {
-        operatorId: id,
-        contractType,
-        dailyTravel,
-        dailyTravelMultiple,
-        weekendHolidayBonus,
-        restDayExtra,
-        hourRanges,
-        isDefault: false,
-      });
+      await Promise.all([
+        savePaymentRules(id, {
+          operatorId: id,
+          contractType,
+          dailyTravel,
+          dailyTravelMultiple,
+          weekendHolidayBonus,
+          restDayExtra,
+          hourRanges,
+          isDefault: false,
+        }),
+        updateOperator(id, { paymentProfileId: paymentProfileId || null } as Partial<Operator>),
+      ]);
       showToast('Regras de pagamento salvas!');
     } catch (err) {
       console.error(err);
@@ -396,6 +407,36 @@ export default function OperadorDetailPage() {
           <h3 style={{ fontSize: '16px', marginBottom: '20px' }}>
             Regras de Pagamento — {contractLabels[contractType]}
           </h3>
+
+          {/* Profile selector */}
+          <div style={{ marginBottom: '24px', padding: '14px 16px', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+            <div className="input-group" style={{ margin: 0 }}>
+              <label style={{ fontWeight: 600 }}>Perfil de Pagamento</label>
+              <select
+                className="input"
+                style={{ marginTop: '6px' }}
+                value={paymentProfileId || ''}
+                onChange={(e) => setPaymentProfileId(e.target.value || undefined)}
+              >
+                <option value="">— Usar regras individuais abaixo —</option>
+                {profiles.filter(p => p.isActive !== false).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.contractType === 'funcionario' ? 'CLT' : p.contractType === 'freelancer_n1' ? 'Freelancer N1' : 'Freelancer N2'})
+                  </option>
+                ))}
+              </select>
+              {paymentProfileId && (
+                <p style={{ fontSize: '12px', color: 'var(--primary)', marginTop: '6px', marginBottom: 0 }}>
+                  ✓ Perfil selecionado. As regras individuais abaixo serão ignoradas para cálculos de pagamento.
+                </p>
+              )}
+              {profiles.length === 0 && (
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px', marginBottom: 0 }}>
+                  Nenhum perfil cadastrado. Crie perfis em Configurações → Perfis de Pagamento.
+                </p>
+              )}
+            </div>
+          </div>
 
           {/* Employee rules */}
           {contractType === 'funcionario' && (
