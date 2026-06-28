@@ -11,13 +11,17 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Lê o role do usuário logado. Retorna null se o doc ainda não existe
-    // (primeiro login — evita negar acesso em race condition).
+    // Lê o role do usuário logado.
+    // Usuário anônimo = login RemateWeb (signInAnonymously é ativado apenas
+    // por esse fluxo) → tratado como 'admin' sem precisar de doc em users/.
+    // Para Firebase Auth normal, retorna null se o doc ainda não existe.
     function userRole() {
       let uid = request.auth.uid;
-      return exists(/databases/$(database)/documents/users/$(uid))
-        ? get(/databases/$(database)/documents/users/$(uid)).data.role
-        : null;
+      return request.auth.token.firebase.sign_in_provider == 'anonymous'
+        ? 'admin'
+        : (exists(/databases/$(database)/documents/users/$(uid))
+            ? get(/databases/$(database)/documents/users/$(uid)).data.role
+            : null);
     }
 
     function hasRole(roles) {
