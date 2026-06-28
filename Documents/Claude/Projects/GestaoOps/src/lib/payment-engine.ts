@@ -258,13 +258,14 @@ export function calculateOperatorPayment(
     }
   }
 
-  // 6. Dia de folga trabalhado → paga pela tabela N2 (substitui o baseValue, não soma).
-  //    Usa findHourRange para que a última faixa seja ilimitada (ex: 12h+ = 200).
+  // 6. Dia de folga trabalhado → paga pela tabela N2 por padrão (substitui baseValue, não soma).
+  //    Se restDayMatchesMainRules=true, usa a própria tabela do operador (não N2).
   //    Fallback: restDayExtra fixo configurado no operador.
   let restDayExtra = 0;
   if (assignment.onRestDay) {
-    if (restDayRules?.hourRanges?.length) {
-      const r = findHourRange(restDayRules.hourRanges, hours);
+    const effectiveRestDayRules = safeRules.restDayMatchesMainRules ? safeRules : restDayRules;
+    if (effectiveRestDayRules?.hourRanges?.length) {
+      const r = findHourRange(effectiveRestDayRules.hourRanges, hours);
       if (r) {
         restDayExtra = isSpecialDay ? r.weekendHolidayValue : r.weekdayValue;
       } else if (safeRules.restDayExtra && safeRules.restDayExtra > 0) {

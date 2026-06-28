@@ -17,6 +17,7 @@ function profileToRules(profile: PaymentProfile & { id: string }, operatorId: st
     dailyTravelMultiple: profile.dailyTravelMultiple,
     weekendHolidayBonus: profile.weekendHolidayBonus,
     restDayExtra: profile.restDayExtra,
+    restDayMatchesMainRules: profile.restDayMatchesMainRules,
     isDefault: false,
     updatedAt: profile.updatedAt instanceof Date ? profile.updatedAt : new Date(),
   };

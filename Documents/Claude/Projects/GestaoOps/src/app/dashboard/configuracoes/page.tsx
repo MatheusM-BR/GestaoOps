@@ -384,6 +384,7 @@ export default function ConfiguracoesPage() {
         dailyTravelMultiple: editingProfile.dailyTravelMultiple ?? 300,
         weekendHolidayBonus: editingProfile.weekendHolidayBonus ?? 0,
         restDayExtra: editingProfile.restDayExtra ?? 0,
+        restDayMatchesMainRules: editingProfile.restDayMatchesMainRules === true,
         isActive: editingProfile.isActive !== false,
       };
       if (editingProfile.id) {
@@ -1112,8 +1113,8 @@ export default function ConfiguracoesPage() {
                     <option value="freelancer_n2">Freelancer N2</option>
                   </select>
                 </div>
-                <div className="input-group" style={{ display: 'flex', alignItems: 'flex-end', gap: '10px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0, paddingBottom: '8px' }}>
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'flex-end', paddingBottom: '4px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
                     <input
                       type="checkbox"
                       checked={editingProfile.isActive !== false}
@@ -1121,6 +1122,20 @@ export default function ConfiguracoesPage() {
                       style={{ width: '16px', height: '16px' }}
                     />
                     Perfil Ativo
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={editingProfile.restDayMatchesMainRules === true}
+                      onChange={(e) => setEditingProfile({ ...editingProfile, restDayMatchesMainRules: e.target.checked })}
+                      style={{ width: '16px', height: '16px' }}
+                    />
+                    <span style={{ fontSize: '13px' }}>
+                      Folga usa mesma tabela de horas
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '1px' }}>
+                        (ao invés da tabela N2 padrão)
+                      </span>
+                    </span>
                   </label>
                 </div>
               </div>

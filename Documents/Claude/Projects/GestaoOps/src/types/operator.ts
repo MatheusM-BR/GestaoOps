@@ -29,6 +29,7 @@ export interface PaymentRules {
   dailyTravelMultiple: number;
   weekendHolidayBonus: number;
   restDayExtra?: number; // valor extra pago quando o operador trabalha em dia de folga
+  restDayMatchesMainRules?: boolean; // quando true, dia de folga usa a mesma tabela de horas (não o padrão N2)
   hourRanges: HourRange[];
   isDefault: boolean;
   updatedAt: Date;
@@ -44,6 +45,7 @@ export interface PaymentProfile {
   dailyTravelMultiple: number;
   weekendHolidayBonus: number;
   restDayExtra?: number;
+  restDayMatchesMainRules?: boolean; // quando true, dia de folga usa a mesma tabela de horas (não o padrão N2)
   isActive: boolean;
   createdAt?: Date;
   updatedAt?: Date;
