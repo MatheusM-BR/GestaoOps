@@ -193,9 +193,12 @@ export function calculateOperatorPayment(
   //    Em eventos EXTERNOS a diária de viagem já cobre o dia de trabalho,
   //    portanto não somamos o hourRange em cima — apenas travelValue se aplica.
   const isExternal = event.operationType === 'externo';
+  // Qualquer dia de viagem (antes/depois) indica regime externo: apenas diária, sem base por horas.
+  const hasTravelDays = ((assignment.travelDaysBefore || 0) + (assignment.travelDaysAfter || 0)) > 0;
+  const isExternalLike = isExternal || hasTravelDays;
   let baseValue = 0;
   let rangeRule = 'Sem faixa correspondente';
-  if (!assignment.onRestDay && !isExternal && safeRules.hourRanges && safeRules.hourRanges.length > 0) {
+  if (!assignment.onRestDay && !isExternalLike && safeRules.hourRanges && safeRules.hourRanges.length > 0) {
     const range = findHourRange(safeRules.hourRanges, hours);
     if (range) {
       baseValue = isSpecialDay ? range.weekendHolidayValue : range.weekdayValue;
@@ -248,7 +251,7 @@ export function calculateOperatorPayment(
   //    weekendHolidayBonus é um FALLBACK fixo: só é usado quando NENHUMA faixa tem
   //    weekendHolidayValue > 0, evitando soma dupla com o tiered configurado em hourRanges.
   let bonusValue = 0;
-  if (!assignment.onRestDay && !isExternal && safeRules.contractType === 'funcionario' && isSpecialDay) {
+  if (!assignment.onRestDay && !isExternalLike && safeRules.contractType === 'funcionario' && isSpecialDay) {
     const hasWeekendTiered = (safeRules.hourRanges || []).some((r) => r.weekendHolidayValue > 0);
     if (!hasWeekendTiered) {
       bonusValue = safeRules.weekendHolidayBonus || 0;
