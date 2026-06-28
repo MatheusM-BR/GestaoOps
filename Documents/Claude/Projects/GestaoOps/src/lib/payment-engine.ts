@@ -190,9 +190,12 @@ export function calculateOperatorPayment(
   // 3. Encontrar a faixa de horas correspondente
   //    Em dias de FOLGA o CLT recebe como freelancer N1 (cálculo abaixo),
   //    então o baseValue normal não se aplica — zerado aqui para evitar soma dupla.
+  //    Em eventos EXTERNOS a diária de viagem já cobre o dia de trabalho,
+  //    portanto não somamos o hourRange em cima — apenas travelValue se aplica.
+  const isExternal = event.operationType === 'externo';
   let baseValue = 0;
   let rangeRule = 'Sem faixa correspondente';
-  if (!assignment.onRestDay && safeRules.hourRanges && safeRules.hourRanges.length > 0) {
+  if (!assignment.onRestDay && !isExternal && safeRules.hourRanges && safeRules.hourRanges.length > 0) {
     const range = findHourRange(safeRules.hourRanges, hours);
     if (range) {
       baseValue = isSpecialDay ? range.weekendHolidayValue : range.weekdayValue;
@@ -202,9 +205,8 @@ export function calculateOperatorPayment(
 
   // 4. Calcular diárias de viagem / deslocamento
   let travelValue = 0;
-  
+
   // Se for leilão externo ou tiver dias de viagem
-  const isExternal = event.operationType === 'externo';
   const travelDays = (assignment.travelDaysBefore || 0) + (assignment.travelDaysAfter || 0);
 
   // Diária dos dias de deslocamento (quando não é o dia do leilão)
@@ -246,7 +248,7 @@ export function calculateOperatorPayment(
   //    weekendHolidayBonus é um FALLBACK fixo: só é usado quando NENHUMA faixa tem
   //    weekendHolidayValue > 0, evitando soma dupla com o tiered configurado em hourRanges.
   let bonusValue = 0;
-  if (!assignment.onRestDay && safeRules.contractType === 'funcionario' && isSpecialDay) {
+  if (!assignment.onRestDay && !isExternal && safeRules.contractType === 'funcionario' && isSpecialDay) {
     const hasWeekendTiered = (safeRules.hourRanges || []).some((r) => r.weekendHolidayValue > 0);
     if (!hasWeekendTiered) {
       bonusValue = safeRules.weekendHolidayBonus || 0;
