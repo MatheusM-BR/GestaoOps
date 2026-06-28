@@ -106,7 +106,9 @@ export async function assignOperator(eventId: string, assignment: EventAssignmen
 export async function removeAssignment(eventId: string, operatorId: string): Promise<void> {
   const event = await getEventById(eventId);
   if (!event) throw new Error('Event not found');
-  const assignments = (event.assignments || []).filter((a: EventAssignment) => a.operatorId !== operatorId);
+  const assignments = (event.assignments || [])
+    .filter((a: EventAssignment) => a.operatorId !== operatorId)
+    .map((a) => stripUndefined(a as unknown as Record<string, unknown>));
   const status = assignments.length > 0 ? 'escalado' : 'pendente';
   await updateDocument(COLLECTION, eventId, { assignments, status } as Record<string, unknown>);
 }

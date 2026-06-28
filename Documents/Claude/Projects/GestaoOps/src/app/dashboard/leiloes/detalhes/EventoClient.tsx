@@ -477,6 +477,7 @@ export default function EventoDetailPage() {
       await loadEvent();
     } catch (err) {
       console.error(err);
+      showToast('Erro ao remover operador. Verifique o console.', 'error');
     }
   };
 

@@ -3,6 +3,7 @@ import {
   doc,
   getDocs,
   getDoc,
+  getDocFromServer,
   getDocsFromServer,
   addDoc,
   updateDoc,
@@ -33,7 +34,7 @@ export async function getCollection<T>(
 }
 
 export async function getDocument<T>(collectionName: string, docId: string): Promise<(T & { id: string }) | null> {
-  const snap = await getDoc(doc(db, collectionName, docId));
+  const snap = await getDocFromServer(doc(db, collectionName, docId));
   if (!snap.exists()) return null;
   return { id: snap.id, ...snap.data() } as T & { id: string };
 }
