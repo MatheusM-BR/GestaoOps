@@ -64,6 +64,17 @@ service cloud.firestore {
       allow delete: if isSignedIn() && request.auth.uid != uid;
     }
 
+    // Empresas do grupo e centros de custo: todos leem; só gestão escreve.
+    match /companies/{doc} {
+      allow read: if isSignedIn();
+      allow write: if canWriteSettings();
+    }
+
+    match /costCenters/{doc} {
+      allow read: if isSignedIn();
+      allow write: if canWriteSettings();
+    }
+
     // Operadores: todos os autenticados leem (dados básicos de equipe, sem financeiro).
     // Escrita restrita a admin/gestor/administrativo.
     match /operators/{doc} {

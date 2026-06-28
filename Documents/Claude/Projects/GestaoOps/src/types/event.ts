@@ -232,6 +232,8 @@ export interface GestaoEvent {
   company: string;
   observation: string;
   financialCode: string;
+  companyId?: string;      // empresa do grupo responsável pelo evento
+  costCenterId?: string;   // centro de custo financeiro
   services: EventService[];
   assignments: EventAssignment[];
   expenses: EventExpense[];

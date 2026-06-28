@@ -14,6 +14,9 @@ import {
   ServiceDef, ServiceNature, ServicesSettings, SERVICE_NATURE_LABELS,
   DEFAULT_SERVICE_CATALOG, serviceDefFromName, managedServiceNames,
 } from '@/types/service';
+import { Company, CostCenter, CostCenterType, COST_CENTER_TYPE_LABELS } from '@/types/company';
+import { getCompanies, addCompany, updateCompany, deleteCompany } from '@/services/companies';
+import { getCostCenters, addCostCenter, updateCostCenter, deleteCostCenter } from '@/services/costCenters';
 
 interface Holiday {
   id: string;
@@ -23,7 +26,7 @@ interface Holiday {
 }
 
 export default function ConfiguracoesPage() {
-  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'pagamentos' | 'catalogos' | 'modelos' | 'fiscal' | 'api' | 'feriados' | 'auditoria'>('funcoes');
+  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'pagamentos' | 'catalogos' | 'modelos' | 'fiscal' | 'api' | 'feriados' | 'auditoria' | 'empresas'>('funcoes');
 
   // Condições de pagamento padrão (dropdown no cadastro de leilão)
   const [payConds, setPayConds] = useState<string[]>([]);
@@ -396,6 +399,61 @@ export default function ConfiguracoesPage() {
   const [auditFrom, setAuditFrom] = useState('');
   const [auditTo, setAuditTo] = useState('');
 
+  // Empresas e centros de custo
+  const [companies, setCompanies] = useState<(Company & { id: string })[]>([]);
+  const [costCenters, setCostCenters] = useState<(CostCenter & { id: string })[]>([]);
+  const [empresasLoaded, setEmpresasLoaded] = useState(false);
+  const [newCompanyName, setNewCompanyName] = useState('');
+  const [newCompanyCode, setNewCompanyCode] = useState('');
+  const [newCompanyCnpj, setNewCompanyCnpj] = useState('');
+  const [newCompanyColor, setNewCompanyColor] = useState('#6366f1');
+  const [newCcCompanyId, setNewCcCompanyId] = useState('');
+  const [newCcName, setNewCcName] = useState('');
+  const [newCcCode, setNewCcCode] = useState('');
+  const [newCcType, setNewCcType] = useState<CostCenterType>('operacional');
+
+  const loadEmpresas = useCallback(async () => {
+    try {
+      const [comps, ccs] = await Promise.all([getCompanies(), getCostCenters()]);
+      setCompanies(comps);
+      setCostCenters(ccs);
+      setEmpresasLoaded(true);
+    } catch { setEmpresasLoaded(true); }
+  }, []);
+
+  const handleAddCompany = async () => {
+    if (!newCompanyName.trim() || !newCompanyCode.trim()) return;
+    await addCompany({ name: newCompanyName.trim(), code: newCompanyCode.trim().toUpperCase(), cnpj: newCompanyCnpj.trim() || undefined, color: newCompanyColor, active: true });
+    setNewCompanyName(''); setNewCompanyCode(''); setNewCompanyCnpj(''); setNewCompanyColor('#6366f1');
+    const comps = await getCompanies(); setCompanies(comps);
+    setToast({ message: 'Empresa adicionada!', type: 'success' });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleDeleteCompany = async (id: string) => {
+    await deleteCompany(id);
+    const [comps, ccs] = await Promise.all([getCompanies(), getCostCenters()]);
+    setCompanies(comps); setCostCenters(ccs);
+    setToast({ message: 'Empresa removida.', type: 'success' });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleAddCostCenter = async () => {
+    if (!newCcCompanyId || !newCcName.trim() || !newCcCode.trim()) return;
+    await addCostCenter({ companyId: newCcCompanyId, name: newCcName.trim(), code: newCcCode.trim().toUpperCase(), type: newCcType, active: true });
+    setNewCcName(''); setNewCcCode(''); setNewCcType('operacional');
+    const ccs = await getCostCenters(); setCostCenters(ccs);
+    setToast({ message: 'Centro de custo adicionado!', type: 'success' });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleDeleteCostCenter = async (id: string) => {
+    await deleteCostCenter(id);
+    const ccs = await getCostCenters(); setCostCenters(ccs);
+    setToast({ message: 'Centro de custo removido.', type: 'success' });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const loadAudit = useCallback(async () => {
     setAuditLoading(true);
     try {
@@ -436,6 +494,7 @@ export default function ConfiguracoesPage() {
     if (activeTab === 'modelos') loadDefaultRules(selectedContractType);
     if (activeTab === 'feriados' && !holidaysLoaded) loadHolidays();
     if (activeTab === 'auditoria' && !auditLoaded) loadAudit();
+    if (activeTab === 'empresas' && !empresasLoaded) loadEmpresas();
     if (activeTab === 'fiscal' && !fiscalLoaded) {
       (async () => {
         try {
@@ -448,7 +507,7 @@ export default function ConfiguracoesPage() {
         } catch { setFiscalLoaded(true); }
       })();
     }
-  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, payCondsLoaded, selectedContractType, holidaysLoaded, fiscalLoaded, auditLoaded, loadRoles, loadServices, loadStudios, loadPayConds, loadDefaultRules, loadAudit]);
+  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, payCondsLoaded, selectedContractType, holidaysLoaded, fiscalLoaded, auditLoaded, empresasLoaded, loadRoles, loadServices, loadStudios, loadPayConds, loadDefaultRules, loadAudit, loadEmpresas]);
 
   return (
     <div>
@@ -501,6 +560,10 @@ export default function ConfiguracoesPage() {
         <button className={`tab ${activeTab === 'auditoria' ? 'active' : ''}`} onClick={() => setActiveTab('auditoria')}>
           <ShieldCheck size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
           Auditoria
+        </button>
+        <button className={`tab ${activeTab === 'empresas' ? 'active' : ''}`} onClick={() => setActiveTab('empresas')}>
+          <Briefcase size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+          Empresas
         </button>
       </div>
 
@@ -1076,6 +1139,151 @@ export default function ConfiguracoesPage() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Aba de Empresas e Centros de Custo */}
+      {activeTab === 'empresas' && (
+        <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+          {/* Empresas */}
+          <div className="card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '16px', marginBottom: '2px' }}>Empresas do Grupo</h3>
+                <p style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>Cada evento é vinculado a uma empresa para separação financeira.</p>
+              </div>
+            </div>
+
+            {companies.length > 0 && (
+              <div className="table-container" style={{ marginBottom: '20px' }}>
+                <table className="table" style={{ fontSize: '13px' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: '16px' }}></th>
+                      <th>Nome</th>
+                      <th>Código</th>
+                      <th>CNPJ</th>
+                      <th style={{ width: '80px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {companies.map((c) => (
+                      <tr key={c.id}>
+                        <td><span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: c.color || '#6366f1' }} /></td>
+                        <td style={{ fontWeight: 500 }}>{c.name}</td>
+                        <td><span className="badge">{c.code}</span></td>
+                        <td style={{ color: 'var(--text-muted)' }}>{c.cnpj || '—'}</td>
+                        <td>
+                          <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteCompany(c.id)} style={{ color: 'var(--error)', padding: '2px 6px' }}>
+                            <Trash2 size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <h4 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '12px' }}>Nova Empresa</h4>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="input-group" style={{ flex: 2, minWidth: '180px' }}>
+                <label>Nome</label>
+                <input className="input" value={newCompanyName} onChange={(e) => setNewCompanyName(e.target.value)} placeholder="Ex: RemateWeb" />
+              </div>
+              <div className="input-group" style={{ width: '100px' }}>
+                <label>Sigla</label>
+                <input className="input" value={newCompanyCode} onChange={(e) => setNewCompanyCode(e.target.value)} placeholder="RW" maxLength={6} />
+              </div>
+              <div className="input-group" style={{ flex: 1, minWidth: '160px' }}>
+                <label>CNPJ (opcional)</label>
+                <input className="input" value={newCompanyCnpj} onChange={(e) => setNewCompanyCnpj(e.target.value)} placeholder="00.000.000/0001-00" />
+              </div>
+              <div className="input-group" style={{ width: '80px' }}>
+                <label>Cor</label>
+                <input type="color" className="input" value={newCompanyColor} onChange={(e) => setNewCompanyColor(e.target.value)} style={{ padding: '2px', height: '38px' }} />
+              </div>
+              <button className="btn btn-primary" onClick={handleAddCompany} style={{ marginBottom: '6px' }}>
+                <Plus size={16} /> Adicionar
+              </button>
+            </div>
+          </div>
+
+          {/* Centros de Custo */}
+          <div className="card">
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '16px', marginBottom: '2px' }}>Centros de Custo</h3>
+              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>Classifique os custos (diárias, despesas) por centro de custo dentro de cada empresa.</p>
+            </div>
+
+            {costCenters.length > 0 && (
+              <div className="table-container" style={{ marginBottom: '20px' }}>
+                <table className="table" style={{ fontSize: '13px' }}>
+                  <thead>
+                    <tr>
+                      <th>Empresa</th>
+                      <th>Nome</th>
+                      <th>Código</th>
+                      <th>Tipo</th>
+                      <th style={{ width: '80px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {costCenters.map((cc) => {
+                      const comp = companies.find((c) => c.id === cc.companyId);
+                      return (
+                        <tr key={cc.id}>
+                          <td>
+                            {comp && <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: comp.color || '#6366f1', marginRight: '6px' }} />}
+                            <span style={{ color: 'var(--text-secondary)' }}>{comp?.name || '—'}</span>
+                          </td>
+                          <td style={{ fontWeight: 500 }}>{cc.name}</td>
+                          <td><span className="badge">{cc.code}</span></td>
+                          <td><span className="badge badge-accent" style={{ fontSize: '11px' }}>{COST_CENTER_TYPE_LABELS[cc.type]}</span></td>
+                          <td>
+                            <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteCostCenter(cc.id)} style={{ color: 'var(--error)', padding: '2px 6px' }}>
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <h4 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '12px' }}>Novo Centro de Custo</h4>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="input-group" style={{ width: '180px' }}>
+                <label>Empresa</label>
+                <select className="input" value={newCcCompanyId} onChange={(e) => setNewCcCompanyId(e.target.value)}>
+                  <option value="">Selecione...</option>
+                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="input-group" style={{ flex: 2, minWidth: '180px' }}>
+                <label>Nome</label>
+                <input className="input" value={newCcName} onChange={(e) => setNewCcName(e.target.value)} placeholder="Ex: Leilões Externos" />
+              </div>
+              <div className="input-group" style={{ width: '100px' }}>
+                <label>Código</label>
+                <input className="input" value={newCcCode} onChange={(e) => setNewCcCode(e.target.value)} placeholder="EXT" maxLength={8} />
+              </div>
+              <div className="input-group" style={{ width: '160px' }}>
+                <label>Tipo</label>
+                <select className="input" value={newCcType} onChange={(e) => setNewCcType(e.target.value as CostCenterType)}>
+                  {(Object.keys(COST_CENTER_TYPE_LABELS) as CostCenterType[]).map((t) => (
+                    <option key={t} value={t}>{COST_CENTER_TYPE_LABELS[t]}</option>
+                  ))}
+                </select>
+              </div>
+              <button className="btn btn-primary" onClick={handleAddCostCenter} style={{ marginBottom: '6px' }}>
+                <Plus size={16} /> Adicionar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

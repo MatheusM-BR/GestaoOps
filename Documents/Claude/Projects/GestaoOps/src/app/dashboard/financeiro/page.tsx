@@ -3,13 +3,16 @@
 import { useEffect, useState, Fragment } from 'react';
 import { getEvents } from '@/services/events';
 import { getOperators } from '@/services/operators';
+import { getCompanies } from '@/services/companies';
+import { getCostCenters } from '@/services/costCenters';
 import { getDocument, getCollection } from '@/lib/firestore';
-import { calculateOperatorPayment } from '@/lib/payment-engine';
+import { calculateOperatorPayment, toSafeDate } from '@/lib/payment-engine';
 import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE } from '@/types/event';
 import { Operator } from '@/types/operator';
-import { format, parseISO } from 'date-fns';
+import { Company, CostCenter } from '@/types/company';
+import { format, parseISO, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { DollarSign, TrendingUp, TrendingDown, Calendar, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Calendar, ChevronDown, ChevronUp, Download, Plane } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 function toDate(val: unknown): Date {
@@ -23,6 +26,8 @@ function toDate(val: unknown): Date {
 export default function FinanceiroPage() {
   const [events, setEvents] = useState<(GestaoEvent & { id: string })[]>([]);
   const [operators, setOperators] = useState<(Operator & { id: string })[]>([]);
+  const [companies, setCompanies] = useState<(Company & { id: string })[]>([]);
+  const [costCenters, setCostCenters] = useState<(CostCenter & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [defaultRulesFunc, setDefaultRulesFunc] = useState<any>(null);
@@ -45,7 +50,7 @@ export default function FinanceiroPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [evts, ops, funcDoc, n1Doc, n2Doc, svcDoc, hols] = await Promise.all([
+        const [evts, ops, funcDoc, n1Doc, n2Doc, svcDoc, hols, comps, ccs] = await Promise.all([
           getEvents(),
           getOperators(),
           getDocument<any>('settings', 'default_rules_funcionario').catch(() => null),
@@ -53,9 +58,13 @@ export default function FinanceiroPage() {
           getDocument<any>('settings', 'default_rules_freelancer_n2').catch(() => null),
           getDocument<any>('settings', 'services').catch(() => null),
           getCollection<any>('holidays').catch(() => []),
+          getCompanies().catch(() => []),
+          getCostCenters().catch(() => []),
         ]);
         setEvents(evts);
         setOperators(ops);
+        setCompanies(comps);
+        setCostCenters(ccs);
         if (funcDoc) setDefaultRulesFunc({ ...funcDoc, contractType: 'funcionario' });
         if (n1Doc) setDefaultRulesN1({ ...n1Doc, contractType: 'freelancer_n1' });
         if (n2Doc) setDefaultRulesN2({ ...n2Doc, contractType: 'freelancer_n2' });
@@ -144,7 +153,128 @@ export default function FinanceiroPage() {
   const totalPayments = Object.values(operatorPayments).reduce((s, p) => s + p.total, 0);
   const netResult = totalRevenue - totalExpenses;
 
-  // Exporta o extrato por operador (cada leilão + valor) para Excel.
+  // ── Projeção de diárias de viagem ──────────────────────────────────────────
+  // Eventos com algum assignment que tenha diárias de deslocamento OU operationType=externo.
+  // Agrupa por empresa → centro de custo → lista de linhas.
+  interface TravelLine {
+    eventId: string;
+    eventTitle: string;
+    eventDate: Date;
+    companyId: string;
+    companyName: string;
+    costCenterId: string;
+    costCenterName: string;
+    operatorName: string;
+    travelDaysBefore: number;
+    travelDaysAfter: number;
+    travelDayValue: number;  // valor dia leilão externo (0 para eventos estúdio)
+    totalTravel: number;
+  }
+
+  const travelLines: TravelLine[] = [];
+
+  // Para detectar múltiplos externos no mesmo dia por operador
+  const extEventsByOpDay = new Map<string, { eventId: string; date: Date }[]>();
+  events.forEach((evt) => {
+    if (evt.operationType !== 'externo') return;
+    (evt.assignments || []).forEach((a) => {
+      const key = a.operatorId;
+      if (!extEventsByOpDay.has(key)) extEventsByOpDay.set(key, []);
+      extEventsByOpDay.get(key)!.push({ eventId: evt.id!, date: toSafeDate(evt.date) });
+    });
+  });
+
+  filteredEvents.forEach((evt) => {
+    const hasTravelOp = (evt.assignments || []).some(
+      (a) => (a.travelDaysBefore || 0) + (a.travelDaysAfter || 0) > 0 || evt.operationType === 'externo',
+    );
+    if (!hasTravelOp) return;
+
+    const comp = companies.find((c) => c.id === evt.companyId);
+    const cc = costCenters.find((c) => c.id === evt.costCenterId);
+    const companyName = comp?.name || evt.company || 'Sem empresa';
+    const costCenterName = cc?.name || '—';
+    const evtDate = toSafeDate(evt.date);
+
+    (evt.assignments || []).forEach((a) => {
+      const travelBefore = a.travelDaysBefore || 0;
+      const travelAfter = a.travelDaysAfter || 0;
+      const dislocDays = travelBefore + travelAfter;
+
+      const op = operators.find((o) => o.id === a.operatorId);
+      const rules = (op?.paymentRules?.hourRanges?.length ?? 0) > 0 ? op?.paymentRules : null;
+      const dailyRate = (rules?.dailyTravel) ?? 200;
+      const dailyRateMultiple = (rules?.dailyTravelMultiple) ?? 300;
+
+      // Valor da diária do dia do leilão (se externo)
+      let travelDayValue = 0;
+      if (evt.operationType === 'externo') {
+        const opExts = extEventsByOpDay.get(a.operatorId) || [];
+        const sameDayOthers = opExts.filter((x) => x.eventId !== evt.id && isSameDay(x.date, evtDate));
+        if (sameDayOthers.length > 0) {
+          travelDayValue = dailyRateMultiple / (sameDayOthers.length + 1);
+        } else {
+          travelDayValue = dailyRate;
+        }
+      }
+
+      const totalTravel = dislocDays * dailyRate + travelDayValue;
+      if (totalTravel === 0 && dislocDays === 0) return;
+
+      travelLines.push({
+        eventId: evt.id!,
+        eventTitle: evt.title,
+        eventDate: evtDate,
+        companyId: evt.companyId || '',
+        companyName,
+        costCenterId: evt.costCenterId || '',
+        costCenterName,
+        operatorName: a.operatorName || op?.name || 'Operador',
+        travelDaysBefore: travelBefore,
+        travelDaysAfter: travelAfter,
+        travelDayValue,
+        totalTravel,
+      });
+    });
+  });
+
+  const totalTravelProjection = travelLines.reduce((s, l) => s + l.totalTravel, 0);
+
+  // Agrupamento: empresa → lista de linhas
+  const travelByCompany = new Map<string, { companyName: string; color?: string; lines: TravelLine[] }>();
+  travelLines.forEach((l) => {
+    if (!travelByCompany.has(l.companyId)) {
+      const comp = companies.find((c) => c.id === l.companyId);
+      travelByCompany.set(l.companyId, { companyName: l.companyName, color: comp?.color, lines: [] });
+    }
+    travelByCompany.get(l.companyId)!.lines.push(l);
+  });
+
+  const handleExportTravel = () => {
+    const rows: Record<string, string | number>[] = travelLines
+      .slice()
+      .sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime())
+      .map((l) => ({
+        Data: format(l.eventDate, 'dd/MM/yyyy'),
+        Empresa: l.companyName,
+        'Centro de Custo': l.costCenterName,
+        Evento: l.eventTitle.replace(/^LIVE \| /, ''),
+        Operador: l.operatorName,
+        'Dias Antes': l.travelDaysBefore,
+        'Dias Depois': l.travelDaysAfter,
+        'Diária Leilão': Number(l.travelDayValue.toFixed(2)),
+        'Total Viagem': Number(l.totalTravel.toFixed(2)),
+      }));
+    if (rows.length === 0) return;
+    const ws = XLSX.utils.json_to_sheet(rows, {
+      header: ['Data', 'Empresa', 'Centro de Custo', 'Evento', 'Operador', 'Dias Antes', 'Dias Depois', 'Diária Leilão', 'Total Viagem'],
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Diárias de Viagem');
+    XLSX.writeFile(wb, `Diarias_Viagem_${periodStart}_${periodEnd}.xlsx`);
+  };
+
+  // ── Exporta o extrato por operador (cada leilão + valor) para Excel ─────────
   const handleExportOperators = () => {
     const rows: Record<string, string | number>[] = [];
     Object.values(operatorPayments)
@@ -154,19 +284,24 @@ export default function FinanceiroPage() {
           .slice()
           .sort((a, b) => a.date.getTime() - b.date.getTime())
           .forEach((e) => {
+            const evt = filteredEvents.find((ev) => ev.title === e.title && isSameDay(toSafeDate(ev.date), e.date));
+            const comp = companies.find((c) => c.id === evt?.companyId);
+            const cc = costCenters.find((c) => c.id === evt?.costCenterId);
             rows.push({
               Operador: op.name,
+              Empresa: comp?.name || evt?.company || '—',
+              'Centro de Custo': cc?.name || '—',
               Data: format(e.date, 'dd/MM/yyyy'),
               Leilão: e.title.replace(/^LIVE \| /, ''),
               Regra: e.rule,
               Valor: Number(e.value.toFixed(2)),
             });
           });
-        rows.push({ Operador: op.name, Data: '', Leilão: 'TOTAL', Regra: '', Valor: Number(op.total.toFixed(2)) });
+        rows.push({ Operador: op.name, Empresa: '', 'Centro de Custo': '', Data: '', Leilão: 'TOTAL', Regra: '', Valor: Number(op.total.toFixed(2)) });
         rows.push({});
       });
     if (rows.length === 0) return;
-    const ws = XLSX.utils.json_to_sheet(rows, { header: ['Operador', 'Data', 'Leilão', 'Regra', 'Valor'] });
+    const ws = XLSX.utils.json_to_sheet(rows, { header: ['Operador', 'Empresa', 'Centro de Custo', 'Data', 'Leilão', 'Regra', 'Valor'] });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Por Operador');
     XLSX.writeFile(wb, `Receitas_Operadores_${periodStart}_${periodEnd}.xlsx`);
@@ -311,6 +446,77 @@ export default function FinanceiroPage() {
           </table>
         </div>
       </div>
+
+      {/* Projeção de Diárias de Viagem */}
+      {travelLines.length > 0 && (
+        <div className="card" style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ fontSize: '16px', margin: 0 }}>
+                <Plane size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--primary)' }} />
+                Projeção de Diárias de Viagem
+              </h3>
+              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Total projetado: <strong style={{ color: 'var(--warning)' }}>R$ {totalTravelProjection.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+              </p>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={handleExportTravel} style={{ gap: '6px' }}>
+              <Download size={15} /> Exportar
+            </button>
+          </div>
+
+          {Array.from(travelByCompany.entries()).map(([compId, group]) => (
+            <div key={compId} style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: group.color || '#6366f1', flexShrink: 0 }} />
+                <span style={{ fontWeight: 600, fontSize: '14px' }}>{group.companyName}</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                  R$ {group.lines.reduce((s, l) => s + l.totalTravel, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="table-container">
+                <table className="table" style={{ fontSize: '12.5px' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ whiteSpace: 'nowrap' }}>Data</th>
+                      <th>Evento</th>
+                      <th>Centro de Custo</th>
+                      <th>Operador</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>Dias Antes</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>Dias Depois</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>Diária Leilão</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.lines
+                      .slice()
+                      .sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime())
+                      .map((l, i) => (
+                        <tr key={i}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{format(l.eventDate, 'dd/MM/yy')}</td>
+                          <td style={{ fontWeight: 500 }}>{l.eventTitle.replace(/^LIVE \| /, '')}</td>
+                          <td>
+                            {l.costCenterName !== '—'
+                              ? <span className="badge badge-accent" style={{ fontSize: '11px' }}>{l.costCenterName}</span>
+                              : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                          </td>
+                          <td>{l.operatorName}</td>
+                          <td style={{ textAlign: 'center' }}>{l.travelDaysBefore > 0 ? l.travelDaysBefore : '—'}</td>
+                          <td style={{ textAlign: 'center' }}>{l.travelDaysAfter > 0 ? l.travelDaysAfter : '—'}</td>
+                          <td style={{ textAlign: 'right' }}>{l.travelDayValue > 0 ? `R$ ${l.travelDayValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '—'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--warning)' }}>
+                            R$ {l.totalTravel.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Receitas por operador (extrato individual) */}
       <div className="card">

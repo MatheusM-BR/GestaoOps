@@ -4,6 +4,9 @@ import { useEffect, useState, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { getEventById, getEvents, updateEvent, addServiceToEvent, removeServiceFromEvent, assignOperator, removeAssignment, addExpense, removeExpense } from '@/services/events';
 import { getActiveOperators } from '@/services/operators';
+import { getCompanies } from '@/services/companies';
+import { getCostCenters } from '@/services/costCenters';
+import { Company, CostCenter } from '@/types/company';
 import { getDocument, getCollection } from '@/lib/firestore';
 import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense, ExpenseCategory, EventPlanning, PlanningVehicle, PlanningHotel, PlanningChecklist, AuctionRegistration, SaleType, SALE_TYPE_LABELS, REGION_LABELS, emptyAuctionRegistration, eventStatusBadge } from '@/types/event';
 import { useCatalogs } from '@/lib/useCatalogs';
@@ -69,6 +72,10 @@ export default function EventoDetailPage() {
   const [contractInfo, setContractInfo] = useState('');
   const [company, setCompany] = useState('');
   const [financialCode, setFinancialCode] = useState('');
+  const [companyId, setCompanyId] = useState('');
+  const [costCenterId, setCostCenterId] = useState('');
+  const [companiesList, setCompaniesList] = useState<(Company & { id: string })[]>([]);
+  const [costCentersList, setCostCentersList] = useState<(CostCenter & { id: string })[]>([]);
   const [needsPlanning, setNeedsPlanning] = useState(false);
 
   // Dados importados (editáveis)
@@ -181,6 +188,8 @@ export default function EventoDetailPage() {
       setContractInfo(evt.contractInfo || '');
       setCompany(evt.company || '');
       setFinancialCode(evt.financialCode || '');
+      setCompanyId(evt.companyId || '');
+      setCostCenterId(evt.costCenterId || '');
       setNeedsPlanning(evt.needsPlanning === true || evt.operationType === 'externo');
       
       // Pre-fill travel from planning
@@ -287,6 +296,13 @@ export default function EventoDetailPage() {
       console.error('Erro ao carregar regras de pagamento padrão:', err);
     }
 
+    // Load companies and cost centers
+    try {
+      const [comps, ccs] = await Promise.all([getCompanies(), getCostCenters()]);
+      setCompaniesList(comps);
+      setCostCentersList(ccs);
+    } catch {}
+
     // Load fiscal settings
     try {
       const fiscalDoc = await getDocument<{ framework: string; nfPercent: number }>('settings', 'fiscal');
@@ -332,6 +348,8 @@ export default function EventoDetailPage() {
         contractInfo,
         company,
         financialCode,
+        companyId: companyId || undefined,
+        costCenterId: costCenterId || undefined,
         needsPlanning: resolvedNeedsPlanning,
         title: editTitle.trim(),
         date: new Date(editDate),
@@ -749,9 +767,37 @@ export default function EventoDetailPage() {
                 <input className="input" value={contractInfo} onChange={(e) => setContractInfo(e.target.value)} disabled={!canEditBilling} />
               </div>
             </div>
-            <div className="input-group">
-              <label>Empresa</label>
-              <input className="input" value={company} onChange={(e) => setCompany(e.target.value)} disabled={!canEditInfo} />
+            <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="input-group">
+                <label>Empresa</label>
+                {companiesList.length > 0 ? (
+                  <select
+                    className="input"
+                    value={companyId}
+                    onChange={(e) => { setCompanyId(e.target.value); setCostCenterId(''); const c = companiesList.find((x) => x.id === e.target.value); if (c) setCompany(c.name); }}
+                    disabled={!canEditInfo}
+                  >
+                    <option value="">— Nenhuma —</option>
+                    {companiesList.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                ) : (
+                  <input className="input" value={company} onChange={(e) => setCompany(e.target.value)} disabled={!canEditInfo} placeholder="Nome da empresa" />
+                )}
+              </div>
+              <div className="input-group">
+                <label>Centro de Custo</label>
+                <select
+                  className="input"
+                  value={costCenterId}
+                  onChange={(e) => setCostCenterId(e.target.value)}
+                  disabled={!canEditBilling || (!companyId && costCentersList.length > 0)}
+                >
+                  <option value="">— Nenhum —</option>
+                  {costCentersList
+                    .filter((cc) => !companyId || cc.companyId === companyId)
+                    .map((cc) => <option key={cc.id} value={cc.id}>{cc.name} ({cc.code})</option>)}
+                </select>
+              </div>
             </div>
             <div className="input-group">
               <label>Observação</label>
