@@ -130,6 +130,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // RemateWeb — o perfil vem do localStorage (getRemateWebProfile).
         if (firebaseUser.isAnonymous) {
           const rwProfile = getRemateWebProfile();
+          if (!rwProfile) {
+            // Sessão de gestor RemateWeb expirou (token vencido) e sobrou apenas a
+            // sessão anônima órfã. Encerra tudo e manda ao login — evita exibir o
+            // perfil "Usuário" fantasma (sem permissões).
+            try {
+              localStorage.removeItem('remateweb_auth');
+              localStorage.removeItem('remateweb_user');
+              localStorage.removeItem('remateweb_name');
+              localStorage.removeItem('remateweb_token');
+              localStorage.removeItem('remateweb_token_expiry');
+              await firebaseSignOut(auth);
+            } catch {}
+            setProfile(null);
+            setMustResetPassword(false);
+            setLoading(false);
+            return;
+          }
           setProfile(rwProfile);
           setMustResetPassword(false);
           setLoading(false);
