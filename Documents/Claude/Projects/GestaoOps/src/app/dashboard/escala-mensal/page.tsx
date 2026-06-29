@@ -723,11 +723,14 @@ export default function EscalaMensalPage() {
                               </div>
                             );
                           })}
-                          {note && (
-                            <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '70px', margin: '0 auto' }} title={note}>
-                              {note}{note.trim().toLowerCase() === 'viagem' ? <span style={{ color: 'var(--accent)', fontStyle: 'normal', fontWeight: 600 }}> · R$ {VIAGEM_VALUE}</span> : null}
-                            </div>
-                          )}
+                          {note && (() => {
+                            const isViagem = note.trim().toLowerCase() === 'viagem';
+                            return (
+                              <div style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontStyle: 'italic', whiteSpace: isViagem ? 'normal' : 'nowrap', overflow: 'hidden', textOverflow: isViagem ? 'clip' : 'ellipsis', maxWidth: '70px', margin: '0 auto', textAlign: 'center', lineHeight: 1.15 }} title={note}>
+                                {note}{isViagem ? <span style={{ color: 'var(--accent)', fontStyle: 'normal', fontWeight: 600 }}> · R$ {VIAGEM_VALUE}</span> : null}
+                              </div>
+                            );
+                          })()}
                           {rest && cell.length === 0 && !note && <span style={{ fontSize: '9px', color: '#ef4444' }}>Folga</span>}
 
                           {isOpen && (
