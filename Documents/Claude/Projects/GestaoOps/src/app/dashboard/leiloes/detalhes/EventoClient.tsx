@@ -12,7 +12,7 @@ import { GestaoEvent, EventService, OperationType, EventAssignment, EventExpense
 import { useCatalogs } from '@/lib/useCatalogs';
 import { Operator, PaymentProfile, isOperatorRestDay } from '@/types/operator';
 import { getPaymentProfiles } from '@/services/paymentProfiles';
-import { resolvePaymentRules } from '@/lib/resolve-payment-rules';
+import { resolvePaymentRules, defaultRulesForContract } from '@/lib/resolve-payment-rules';
 import { useAuth } from '@/lib/auth-context';
 import { logAudit } from '@/services/auditLog';
 import { isInternalService, isInternalEvent, calculateOperatorPayment } from '@/lib/payment-engine';
@@ -101,9 +101,6 @@ export default function EventoDetailPage() {
   const [studiosList, setStudiosList] = useState<string[]>([]);
   const [paymentCondOptions, setPaymentCondOptions] = useState<string[]>([]);
   const [holidays, setHolidays] = useState<any[]>([]);
-  const [defaultRulesFunc, setDefaultRulesFunc] = useState<any>(null);
-  const [defaultRulesN1, setDefaultRulesN1] = useState<any>(null);
-  const [defaultRulesN2, setDefaultRulesN2] = useState<any>(null);
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({});
   const [paymentProfiles, setPaymentProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
 
@@ -282,16 +279,10 @@ export default function EventoDetailPage() {
 
     // Load default payment rules + profiles
     try {
-      const [funcDoc, n1Doc, n2Doc, svcDoc, profs] = await Promise.all([
-        getDocument<any>('settings', 'default_rules_funcionario').catch(() => null),
-        getDocument<any>('settings', 'default_rules_freelancer_n1').catch(() => null),
-        getDocument<any>('settings', 'default_rules_freelancer_n2').catch(() => null),
+      const [svcDoc, profs] = await Promise.all([
         getDocument<any>('settings', 'services').catch(() => null),
         getPaymentProfiles().catch(() => [] as (PaymentProfile & { id: string })[]),
       ]);
-      if (funcDoc) setDefaultRulesFunc({ ...funcDoc, contractType: 'funcionario' });
-      if (n1Doc) setDefaultRulesN1({ ...n1Doc, contractType: 'freelancer_n1' });
-      if (n2Doc) setDefaultRulesN2({ ...n2Doc, contractType: 'freelancer_n2' });
       setPaymentProfiles(profs);
       if (svcDoc?.catalog) {
         const { serviceFixedValues } = await import('@/types/service');
@@ -575,9 +566,10 @@ export default function EventoDetailPage() {
   // Obter o cálculo de pagamentos dos operadores escalados.
   // Sempre calculamos — mesmo sem regras personalizadas — pois para eventos
   // externos a diária (R$ 200 padrão) vem do próprio motor de pagamento.
+  const restDayRules = defaultRulesForContract(paymentProfiles, 'freelancer_n2');
   const teamPayments = (event.assignments || []).map((a) => {
     const op = operators.find((o) => o.id === a.operatorId);
-    const rules = op ? resolvePaymentRules(op, paymentProfiles, defaultRulesFunc, defaultRulesN1, defaultRulesN2) : null;
+    const rules = op ? resolvePaymentRules(op, paymentProfiles) : null;
     // Fallback mínimo: permite calcular diária de externo mesmo sem regras no Firestore
     const effectiveRules = rules || {
       hourRanges: [],
@@ -590,7 +582,7 @@ export default function EventoDetailPage() {
       updatedAt: new Date(),
     } as any;
     try {
-      const pay = calculateOperatorPayment(event, a, effectiveRules, holidays, [], defaultRulesN2, fixedValues);
+      const pay = calculateOperatorPayment(event, a, effectiveRules, holidays, [], restDayRules, fixedValues);
       return {
         operatorId: a.operatorId,
         operatorName: a.operatorName || op?.name || 'Operador',

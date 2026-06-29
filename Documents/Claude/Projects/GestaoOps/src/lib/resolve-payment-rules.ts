@@ -1,4 +1,4 @@
-import { PaymentProfile, PaymentRules } from '@/types/operator';
+import { ContractType, PaymentProfile, PaymentRules } from '@/types/operator';
 
 type OperatorLike = {
   id: string;
@@ -24,19 +24,32 @@ function profileToRules(profile: PaymentProfile & { id: string }, operatorId: st
 }
 
 /**
- * Resolves payment rules for an operator with the following priority:
- * 1. Assigned payment profile (by paymentProfileId)
- * 2. Operator-specific rules (if they have hourRanges)
- * 3. Contract type defaults (funcionario / freelancer_n1 / freelancer_n2)
- * 4. Merge of operator overrides onto contract defaults (no hourRanges override)
+ * Regras padrão para um tipo de contrato = o perfil marcado como
+ * isDefaultForContract === contractType. Substitui os antigos
+ * settings/default_rules_* (Modelos de Ganhos), agora unificados em Perfis.
+ */
+export function defaultRulesForContract(
+  profiles: (PaymentProfile & { id: string })[],
+  contractType: ContractType | string,
+): PaymentRules | null {
+  const p = profiles.find(
+    (pp) => pp.isActive !== false && pp.isDefaultForContract === contractType,
+  );
+  return p ? profileToRules(p, '') : null;
+}
+
+/**
+ * Resolve as regras de pagamento de um operador, na ordem de prioridade:
+ * 1. Perfil atribuído (paymentProfileId)
+ * 2. Regras específicas do operador (se tiverem hourRanges)
+ * 3. Perfil padrão do tipo de contrato (isDefaultForContract)
+ * 4. Merge das sobreposições do operador (sem hourRanges) sobre o padrão
  */
 export function resolvePaymentRules(
   operator: OperatorLike,
   profiles: (PaymentProfile & { id: string })[],
-  defaultRulesFunc: PaymentRules | null,
-  defaultRulesN1: PaymentRules | null,
-  defaultRulesN2: PaymentRules | null,
 ): PaymentRules | null {
+  // 1. Perfil atribuído
   if (operator.paymentProfileId) {
     const profile = profiles.find(
       (p) => p.id === operator.paymentProfileId && p.isActive !== false,
@@ -44,17 +57,16 @@ export function resolvePaymentRules(
     if (profile) return profileToRules(profile, operator.id);
   }
 
+  // 2. Regras específicas do operador com hourRanges
   if ((operator.paymentRules?.hourRanges?.length ?? 0) > 0) {
     return operator.paymentRules!;
   }
 
-  let defaultRules: PaymentRules | null = null;
-  if (operator.contractType === 'funcionario') defaultRules = defaultRulesFunc;
-  else if (operator.contractType === 'freelancer_n2') defaultRules = defaultRulesN2;
-  else defaultRules = defaultRulesN1;
-
+  // 3. Perfil padrão do tipo de contrato
+  const defaultRules = defaultRulesForContract(profiles, operator.contractType);
   if (!defaultRules) return null;
 
+  // 4. Merge das sobreposições do operador (sem hourRanges) sobre o padrão
   if (operator.paymentRules && !(operator.paymentRules.hourRanges?.length)) {
     return { ...defaultRules, ...operator.paymentRules, hourRanges: defaultRules.hourRanges };
   }

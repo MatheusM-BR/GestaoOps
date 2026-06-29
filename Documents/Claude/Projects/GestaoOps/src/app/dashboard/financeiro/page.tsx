@@ -10,7 +10,7 @@ import { calculateOperatorPayment, toSafeDate } from '@/lib/payment-engine';
 import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE } from '@/types/event';
 import { Operator, PaymentProfile } from '@/types/operator';
 import { getPaymentProfiles } from '@/services/paymentProfiles';
-import { resolvePaymentRules } from '@/lib/resolve-payment-rules';
+import { resolvePaymentRules, defaultRulesForContract } from '@/lib/resolve-payment-rules';
 import { Company, CostCenter } from '@/types/company';
 import { format, parseISO, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -32,9 +32,6 @@ export default function FinanceiroPage() {
   const [costCenters, setCostCenters] = useState<(CostCenter & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
-  const [defaultRulesFunc, setDefaultRulesFunc] = useState<any>(null);
-  const [defaultRulesN1, setDefaultRulesN1] = useState<any>(null);
-  const [defaultRulesN2, setDefaultRulesN2] = useState<any>(null);
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({});
   const [holidays, setHolidays] = useState<any[]>([]);
   const [paymentProfiles, setPaymentProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
@@ -53,12 +50,9 @@ export default function FinanceiroPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [evts, ops, funcDoc, n1Doc, n2Doc, svcDoc, hols, comps, ccs, profs] = await Promise.all([
+        const [evts, ops, svcDoc, hols, comps, ccs, profs] = await Promise.all([
           getEvents(),
           getOperators(),
-          getDocument<any>('settings', 'default_rules_funcionario').catch(() => null),
-          getDocument<any>('settings', 'default_rules_freelancer_n1').catch(() => null),
-          getDocument<any>('settings', 'default_rules_freelancer_n2').catch(() => null),
           getDocument<any>('settings', 'services').catch(() => null),
           getCollection<any>('holidays').catch(() => []),
           getCompanies().catch(() => []),
@@ -69,9 +63,6 @@ export default function FinanceiroPage() {
         setOperators(ops);
         setCompanies(comps);
         setCostCenters(ccs);
-        if (funcDoc) setDefaultRulesFunc({ ...funcDoc, contractType: 'funcionario' });
-        if (n1Doc) setDefaultRulesN1({ ...n1Doc, contractType: 'freelancer_n1' });
-        if (n2Doc) setDefaultRulesN2({ ...n2Doc, contractType: 'freelancer_n2' });
         setPaymentProfiles(profs);
         if (svcDoc?.catalog) {
           const { serviceFixedValues } = await import('@/types/service');
@@ -95,6 +86,8 @@ export default function FinanceiroPage() {
   // Calculate payments per operator and event team cost map
   const operatorPayments: Record<string, { name: string; total: number; events: { title: string; value: number; rule: string; date: Date }[] }> = {};
   const eventTeamCostMap: Record<string, number> = {};
+  // Tabela usada para dias de folga: perfil padrão Freelancer N2.
+  const restDayRules = defaultRulesForContract(paymentProfiles, 'freelancer_n2');
 
   filteredEvents.forEach((evt) => {
     // Sem "fechamento": conta pelos horários do evento (date→endDate) no período.
@@ -103,7 +96,7 @@ export default function FinanceiroPage() {
     (evt.assignments || []).forEach((a) => {
       const op = operators.find((o) => o.id === a.operatorId);
 
-      const rules = op ? resolvePaymentRules(op, paymentProfiles, defaultRulesFunc, defaultRulesN1, defaultRulesN2) : null;
+      const rules = op ? resolvePaymentRules(op, paymentProfiles) : null;
       if (!rules) return;
 
       // Somente eventos onde ESTE operador está escalado (evita split errado de diária múltipla)
@@ -112,7 +105,7 @@ export default function FinanceiroPage() {
         .map((e) => ({ eventId: e.id, date: toDate(e.date), operationType: e.operationType }));
 
       try {
-        const pay = calculateOperatorPayment(evt, a, rules, holidays, allAssignmentsInPeriod, defaultRulesN2, fixedValues);
+        const pay = calculateOperatorPayment(evt, a, rules, holidays, allAssignmentsInPeriod, restDayRules, fixedValues);
         const value = pay.totalValue;
         const rule = pay.ruleApplied;
 
@@ -196,7 +189,7 @@ export default function FinanceiroPage() {
       const dislocDays = travelBefore + travelAfter;
 
       const op = operators.find((o) => o.id === a.operatorId);
-      const rules = op ? resolvePaymentRules(op, paymentProfiles, defaultRulesFunc, defaultRulesN1, defaultRulesN2) : null;
+      const rules = op ? resolvePaymentRules(op, paymentProfiles) : null;
       const dailyRate = (rules?.dailyTravel) ?? 200;
       const dailyRateMultiple = (rules?.dailyTravelMultiple) ?? 300;
 

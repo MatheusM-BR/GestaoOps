@@ -1,16 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Settings, Key, Globe, Calendar as CalendarIcon, Save, Plus, Trash2, CheckCircle, Users, Receipt, Briefcase, Play, Radio, ShieldCheck, Search, Tag } from 'lucide-react';
+import { Settings, Key, Globe, Calendar as CalendarIcon, Save, Plus, Trash2, CheckCircle, Users, Receipt, Briefcase, Radio, ShieldCheck, Search, Tag } from 'lucide-react';
 import { getAuditLog, AuditEntry, AuditAction } from '@/services/auditLog';
 import { format, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { authenticate, setTokenManually } from '@/services/remateweb-api';
 import { addDocument, getCollection, deleteDocument, setDocument, getDocument } from '@/lib/firestore';
 import { useCatalogs } from '@/lib/useCatalogs';
-import { DEFAULT_PAYMENT_CONDITION, GestaoEvent, OperationType, OPERATION_TYPE_LABELS } from '@/types/event';
-import { getEvents, updateEvent, assignOperator } from '@/services/events';
-import { getActiveOperators } from '@/services/operators';
+import { DEFAULT_PAYMENT_CONDITION } from '@/types/event';
 import { ContractType, HourRange, PaymentProfile } from '@/types/operator';
 import { getPaymentProfiles, addPaymentProfile, updatePaymentProfile, deletePaymentProfile } from '@/services/paymentProfiles';
 import {
@@ -20,8 +18,6 @@ import {
 import { Company, CostCenter, CostCenterType, COST_CENTER_TYPE_LABELS } from '@/types/company';
 import { getCompanies, addCompany, updateCompany, deleteCompany } from '@/services/companies';
 import { getCostCenters, addCostCenter, updateCostCenter, deleteCostCenter } from '@/services/costCenters';
-import { getOperators, updateOperator } from '@/services/operators';
-import { Operator } from '@/types/operator';
 
 interface Holiday {
   id: string;
@@ -31,7 +27,7 @@ interface Holiday {
 }
 
 export default function ConfiguracoesPage() {
-  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'pagamentos' | 'catalogos' | 'modelos' | 'perfis' | 'fiscal' | 'api' | 'feriados' | 'auditoria' | 'empresas' | 'verificacao'>('funcoes');
+  const [activeTab, setActiveTab] = useState<'funcoes' | 'servicos' | 'estudios' | 'pagamentos' | 'catalogos' | 'perfis' | 'fiscal' | 'api' | 'feriados' | 'auditoria' | 'empresas'>('funcoes');
 
   // Condições de pagamento padrão (dropdown no cadastro de leilão)
   const [payConds, setPayConds] = useState<string[]>([]);
@@ -63,35 +59,12 @@ export default function ConfiguracoesPage() {
   const [newStudio, setNewStudio] = useState('');
   const [studiosLoaded, setStudiosLoaded] = useState(false);
 
-  // Default payment rules
-  const [selectedContractType, setSelectedContractType] = useState<ContractType>('funcionario');
-  const [rulesDailyTravel, setRulesDailyTravel] = useState(0);
-  const [rulesDailyTravelMultiple, setRulesDailyTravelMultiple] = useState(0);
-  const [rulesWeekendHolidayBonus, setRulesWeekendHolidayBonus] = useState(0);
-  const [rulesHourRanges, setRulesHourRanges] = useState<HourRange[]>([]);
-  const [rulesSaving, setRulesSaving] = useState(false);
-
-  // Payment Profiles
+  // Payment Profiles (unifica os antigos "Modelos de Ganhos")
   const [profiles, setProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
   const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Partial<PaymentProfile> & { id?: string } | null>(null);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileHourRanges, setProfileHourRanges] = useState<HourRange[]>([]);
-  const [seedingProfiles, setSeedingProfiles] = useState(false);
-  const [seedResult, setSeedResult] = useState<{ profiles: number; assigned: number; names: string[] } | null>(null);
-
-  // Event verification
-  const [verificationEvents, setVerificationEvents] = useState<Array<{
-    event: GestaoEvent & { id: string };
-    issues: string[];
-    missingTravelFor: string[];
-  }>>([]);
-  const [verificationLoading, setVerificationLoading] = useState(false);
-  const [verificationLoaded, setVerificationLoaded] = useState(false);
-  const [fixingEventId, setFixingEventId] = useState<string | null>(null);
-  const [unassignedEvents, setUnassignedEvents] = useState<Array<{ event: GestaoEvent & { id: string }; services: string[] }>>([]);
-  const [seedingAssignments, setSeedingAssignments] = useState(false);
-  const [seedAssignResult, setSeedAssignResult] = useState<{ assigned: number; events: number } | null>(null);
 
   // Holidays
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -281,84 +254,6 @@ export default function ConfiguracoesPage() {
     showToast('Condição removida.');
   };
 
-  // --- Default Payment Rules ---
-  const loadDefaultRules = useCallback(async (type: ContractType) => {
-    try {
-      const doc = await getDocument<any>('settings', 'default_rules_' + type);
-      if (doc) {
-        setRulesDailyTravel(doc.dailyTravel || 0);
-        setRulesDailyTravelMultiple(doc.dailyTravelMultiple || 0);
-        setRulesWeekendHolidayBonus(doc.weekendHolidayBonus || 0);
-        setRulesHourRanges(doc.hourRanges || []);
-      } else {
-        // Seed standard defaults
-        // CLT: dia útil = 0 (jornada), FDS = 0/100/150/200 nos thresholds 3h45/7h45/11h45
-        // N1:  dia útil = 100/150/200, FDS = 130/195/260 nos thresholds 0/8/12h
-        // N2:  dia útil = 80/120/160,  FDS = 110/160/210
-        const isCLT = type === 'funcionario';
-        const isN1  = type === 'freelancer_n1';
-        let seedRules = {
-          dailyTravel: 200,
-          dailyTravelMultiple: 300,
-          weekendHolidayBonus: 0, // usar faixas tiered, não bônus fixo
-          hourRanges: isCLT ? [
-            { minHours: 0,     maxHours: 3.75,  weekdayValue: 0,   weekendHolidayValue: 0   },
-            { minHours: 3.75,  maxHours: 7.75,  weekdayValue: 0,   weekendHolidayValue: 100 },
-            { minHours: 7.75,  maxHours: 11.75, weekdayValue: 0,   weekendHolidayValue: 150 },
-            { minHours: 11.75, maxHours: 24,    weekdayValue: 0,   weekendHolidayValue: 200 },
-          ] : isN1 ? [
-            { minHours: 0,  maxHours: 8,  weekdayValue: 100, weekendHolidayValue: 130 },
-            { minHours: 8,  maxHours: 12, weekdayValue: 150, weekendHolidayValue: 195 },
-            { minHours: 12, maxHours: 24, weekdayValue: 200, weekendHolidayValue: 260 },
-          ] : [
-            { minHours: 0,  maxHours: 8,  weekdayValue: 80,  weekendHolidayValue: 110 },
-            { minHours: 8,  maxHours: 12, weekdayValue: 120, weekendHolidayValue: 160 },
-            { minHours: 12, maxHours: 24, weekdayValue: 160, weekendHolidayValue: 210 },
-          ],
-        };
-        await setDocument('settings', 'default_rules_' + type, seedRules);
-        setRulesDailyTravel(seedRules.dailyTravel);
-        setRulesDailyTravelMultiple(seedRules.dailyTravelMultiple);
-        setRulesWeekendHolidayBonus(seedRules.weekendHolidayBonus);
-        setRulesHourRanges(seedRules.hourRanges);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  }, []);
-
-  const handleSaveDefaultRules = async () => {
-    setRulesSaving(true);
-    try {
-      await setDocument('settings', 'default_rules_' + selectedContractType, {
-        dailyTravel: rulesDailyTravel,
-        dailyTravelMultiple: rulesDailyTravelMultiple,
-        weekendHolidayBonus: rulesWeekendHolidayBonus,
-        hourRanges: rulesHourRanges,
-      });
-      showToast('Modelos de remuneração salvos!');
-    } catch {
-      showToast('Erro ao salvar modelos.', 'error');
-    } finally {
-      setRulesSaving(false);
-    }
-  };
-
-  const addHourRange = () => {
-    const last = rulesHourRanges[rulesHourRanges.length - 1];
-    setRulesHourRanges([...rulesHourRanges, { minHours: last?.maxHours || 0, maxHours: (last?.maxHours || 0) + 2, weekdayValue: 0, weekendHolidayValue: 0 }]);
-  };
-
-  const removeHourRange = (idx: number) => {
-    setRulesHourRanges(rulesHourRanges.filter((_, i) => i !== idx));
-  };
-
-  const updateRange = (idx: number, field: keyof HourRange, value: number) => {
-    const updated = [...rulesHourRanges];
-    updated[idx] = { ...updated[idx], [field]: value };
-    setRulesHourRanges(updated);
-  };
-
   // --- Payment Profiles ---
   const loadProfiles = useCallback(async () => {
     try {
@@ -404,6 +299,7 @@ export default function ConfiguracoesPage() {
         weekendHolidayBonus: editingProfile.weekendHolidayBonus ?? 0,
         restDayExtra: editingProfile.restDayExtra ?? 0,
         restDayMatchesMainRules: editingProfile.restDayMatchesMainRules === true,
+        isDefaultForContract: editingProfile.isDefaultForContract ?? null,
         isActive: editingProfile.isActive !== false,
       };
       if (editingProfile.id) {
@@ -431,326 +327,6 @@ export default function ConfiguracoesPage() {
       showToast('Perfil excluído.');
     } catch {
       showToast('Erro ao excluir perfil.', 'error');
-    }
-  };
-
-  const seedDefaultProfiles = async () => {
-    setSeedingProfiles(true);
-    setSeedResult(null);
-    try {
-      const DEFAULTS: Omit<PaymentProfile, 'id' | 'createdAt' | 'updatedAt'>[] = [
-        {
-          name: 'Operador de Painel CLT',
-          description: 'Matheus Santos, João Marcos — painel CLT. Folga usa mesma tabela.',
-          contractType: 'funcionario',
-          hourRanges: [
-            { minHours: 0,  maxHours: 4,  weekdayValue: 0,   weekendHolidayValue: 0   },
-            { minHours: 4,  maxHours: 8,  weekdayValue: 100, weekendHolidayValue: 100 },
-            { minHours: 8,  maxHours: 12, weekdayValue: 150, weekendHolidayValue: 150 },
-            { minHours: 12, maxHours: 24, weekdayValue: 200, weekendHolidayValue: 200 },
-          ],
-          dailyTravel: 200, dailyTravelMultiple: 300,
-          weekendHolidayBonus: 0, restDayExtra: 0,
-          restDayMatchesMainRules: true, isActive: true,
-        },
-        {
-          name: 'Operador de Transmissão CLT',
-          description: 'Funcionários CLT transmissão — 3h45/7h45/11h45. Folga usa tabela N2.',
-          contractType: 'funcionario',
-          hourRanges: [
-            { minHours: 0,    maxHours: 3.75,  weekdayValue: 0, weekendHolidayValue: 0   },
-            { minHours: 3.75, maxHours: 7.75,  weekdayValue: 0, weekendHolidayValue: 100 },
-            { minHours: 7.75, maxHours: 11.75, weekdayValue: 0, weekendHolidayValue: 150 },
-            { minHours: 11.75,maxHours: 24,    weekdayValue: 0, weekendHolidayValue: 200 },
-          ],
-          dailyTravel: 200, dailyTravelMultiple: 300,
-          weekendHolidayBonus: 0, restDayExtra: 0,
-          restDayMatchesMainRules: false, isActive: true,
-        },
-        {
-          name: 'Freelancer N1',
-          description: 'Freelancers nível 1 — tarifa padrão.',
-          contractType: 'freelancer_n1',
-          hourRanges: [
-            { minHours: 0,  maxHours: 8,  weekdayValue: 100, weekendHolidayValue: 130 },
-            { minHours: 8,  maxHours: 12, weekdayValue: 150, weekendHolidayValue: 195 },
-            { minHours: 12, maxHours: 24, weekdayValue: 200, weekendHolidayValue: 260 },
-          ],
-          dailyTravel: 200, dailyTravelMultiple: 300,
-          weekendHolidayBonus: 0, restDayExtra: 0,
-          restDayMatchesMainRules: false, isActive: true,
-        },
-        {
-          name: 'Freelancer N2',
-          description: 'Josemar, Adonai, Henrique — tarifa superior FDS/Feriado.',
-          contractType: 'freelancer_n2',
-          hourRanges: [
-            { minHours: 0,  maxHours: 8,  weekdayValue: 100, weekendHolidayValue: 150 },
-            { minHours: 8,  maxHours: 12, weekdayValue: 150, weekendHolidayValue: 225 },
-            { minHours: 12, maxHours: 24, weekdayValue: 200, weekendHolidayValue: 300 },
-          ],
-          dailyTravel: 200, dailyTravelMultiple: 300,
-          weekendHolidayBonus: 0, restDayExtra: 0,
-          restDayMatchesMainRules: false, isActive: true,
-        },
-      ];
-
-      const existingNames = new Set(profiles.map((p) => p.name));
-      let createdCount = 0;
-      for (const p of DEFAULTS) {
-        if (!existingNames.has(p.name)) {
-          await addPaymentProfile(p);
-          createdCount++;
-        }
-      }
-
-      // Reload profiles to get IDs
-      const updatedProfiles = await getPaymentProfiles();
-      setProfiles(updatedProfiles);
-      setProfilesLoaded(true);
-
-      const profileByName = new Map(updatedProfiles.map((p) => [p.name, p.id]));
-
-      // Auto-assign operators that don't have a paymentProfileId yet
-      const ops = await getOperators();
-      const assignedNames: string[] = [];
-      for (const op of ops) {
-        if (op.paymentProfileId) continue;
-        let targetName: string | null = null;
-        if (op.functions?.includes('operador_painel')) {
-          targetName = 'Operador de Painel CLT';
-        } else if (op.contractType === 'funcionario') {
-          targetName = 'Operador de Transmissão CLT';
-        } else if (op.contractType === 'freelancer_n1') {
-          targetName = 'Freelancer N1';
-        } else if (op.contractType === 'freelancer_n2') {
-          targetName = 'Freelancer N2';
-        }
-        if (targetName) {
-          const pid = profileByName.get(targetName);
-          if (pid) {
-            await updateOperator(op.id, { paymentProfileId: pid } as Partial<Operator>);
-            assignedNames.push(`${op.name} → ${targetName}`);
-          }
-        }
-      }
-
-      setSeedResult({ profiles: createdCount, assigned: assignedNames.length, names: assignedNames });
-      showToast(`${createdCount} perfis criados, ${assignedNames.length} operadores atribuídos!`);
-    } catch (err) {
-      console.error(err);
-      showToast('Erro ao criar perfis padrão.', 'error');
-    } finally {
-      setSeedingProfiles(false);
-    }
-  };
-
-  // Mapeamento de nome de serviço → tipo de operação
-  const SERVICE_TYPE_MAP: Record<string, OperationType> = {
-    'operação estúdio': 'estudio',
-    'transmissão estúdio': 'estudio',
-    'transmissão estúdio plus': 'estudio',
-    'cobertura rw estúdio': 'estudio',
-    'programa bora leilão': 'estudio',
-    'programa no leite': 'estudio',
-    'produção canal': 'estudio',
-    'operação externa': 'externo',
-    'transmissão externa': 'externo',
-    'transmissão externa plus': 'externo',
-    'retransmissão': 'retransmissao',
-    'retransmissão plus': 'retransmissao',
-    'live': 'retransmissao',
-  };
-
-  const inferOperationType = (services: { serviceName: string }[]): OperationType | null => {
-    for (const svc of services || []) {
-      const key = svc.serviceName?.toLowerCase().trim() ?? '';
-      if (SERVICE_TYPE_MAP[key]) return SERVICE_TYPE_MAP[key];
-    }
-    return null;
-  };
-
-  const autoClassifyEvents = async () => {
-    setVerificationLoading(true);
-    try {
-      const all = await getEvents();
-      const toClassify = all.filter((ev) => !ev.operationType && (ev.services || []).length > 0);
-      let classified = 0;
-      for (const ev of toClassify) {
-        const inferred = inferOperationType(ev.services || []);
-        if (inferred) {
-          await updateEvent(ev.id!, { operationType: inferred });
-          classified++;
-        }
-      }
-      showToast(`${classified} evento(s) classificado(s) automaticamente.`);
-      // Reload verification list
-      setVerificationLoaded(false);
-      await loadVerification();
-    } catch (err) {
-      console.error(err);
-      showToast('Erro na auto-classificação.', 'error');
-      setVerificationLoading(false);
-    }
-  };
-
-  const loadVerification = async () => {
-    setVerificationLoading(true);
-    try {
-      const all = await getEvents();
-      const issues: typeof verificationEvents = [];
-      for (const ev of all) {
-        const evIssues: string[] = [];
-        const missingTravel: string[] = [];
-        if (!ev.operationType) {
-          evIssues.push('Tipo de operação não definido (externo / estúdio / retransmissão)');
-        }
-        if (ev.operationType === 'externo') {
-          const noTravel = (ev.assignments || []).filter(
-            (a) => (a.travelDaysBefore || 0) + (a.travelDaysAfter || 0) === 0,
-          );
-          if (noTravel.length > 0) {
-            missingTravel.push(...noTravel.map((a) => a.operatorName || a.operatorId));
-            evIssues.push(`Evento externo sem diárias para: ${noTravel.map((a) => a.operatorName || a.operatorId).join(', ')}`);
-          }
-        }
-        if (evIssues.length > 0) {
-          issues.push({ event: ev as GestaoEvent & { id: string }, issues: evIssues, missingTravelFor: missingTravel });
-        }
-      }
-      // Sort: null operationType first, then by date desc
-      issues.sort((a, b) => {
-        const aNull = !a.event.operationType ? 0 : 1;
-        const bNull = !b.event.operationType ? 0 : 1;
-        if (aNull !== bNull) return aNull - bNull;
-        const tA = a.event.date instanceof Date ? a.event.date.getTime()
-          : typeof (a.event.date as unknown) === 'object' && 'toDate' in (a.event.date as object)
-            ? (a.event.date as unknown as { toDate: () => Date }).toDate().getTime() : 0;
-        const tB = b.event.date instanceof Date ? b.event.date.getTime()
-          : typeof (b.event.date as unknown) === 'object' && 'toDate' in (b.event.date as object)
-            ? (b.event.date as unknown as { toDate: () => Date }).toDate().getTime() : 0;
-        return tB - tA;
-      });
-      setVerificationEvents(issues);
-
-      // Eventos com tipo definido (estúdio ou externo) mas sem operadores escalados
-      const unassigned = all
-        .filter((ev) => (ev.operationType === 'estudio' || ev.operationType === 'externo') && (ev.assignments || []).length === 0)
-        .sort((a, b) => {
-          const tA = a.date instanceof Date ? a.date.getTime()
-            : typeof (a.date as unknown) === 'object' && 'toDate' in (a.date as object)
-              ? (a.date as unknown as { toDate: () => Date }).toDate().getTime() : 0;
-          const tB = b.date instanceof Date ? b.date.getTime()
-            : typeof (b.date as unknown) === 'object' && 'toDate' in (b.date as object)
-              ? (b.date as unknown as { toDate: () => Date }).toDate().getTime() : 0;
-          return tA - tB; // mais antigo primeiro
-        })
-        .map((ev) => ({
-          event: ev as GestaoEvent & { id: string },
-          services: (ev.services || []).map((s) => s.serviceName),
-        }));
-      setUnassignedEvents(unassigned);
-
-      setVerificationLoaded(true);
-    } catch (err) {
-      console.error(err);
-      showToast('Erro ao carregar eventos para verificação.', 'error');
-    } finally {
-      setVerificationLoading(false);
-    }
-  };
-
-  const fixEventType = async (eventId: string, operationType: OperationType) => {
-    setFixingEventId(eventId);
-    try {
-      await updateEvent(eventId, { operationType });
-      setVerificationEvents((prev) =>
-        prev
-          .map((v) => {
-            if (v.event.id !== eventId) return v;
-            const updatedEvent = { ...v.event, operationType };
-            const newIssues = v.issues.filter((i) => !i.includes('Tipo de operação'));
-            if (operationType === 'externo') {
-              const noTravel = (updatedEvent.assignments || []).filter(
-                (a) => (a.travelDaysBefore || 0) + (a.travelDaysAfter || 0) === 0,
-              );
-              if (noTravel.length > 0) {
-                newIssues.push(`Evento externo sem diárias para: ${noTravel.map((a) => a.operatorName || a.operatorId).join(', ')}`);
-              }
-            }
-            return newIssues.length === 0 ? null : { ...v, event: updatedEvent, issues: newIssues };
-          })
-          .filter(Boolean) as typeof verificationEvents,
-      );
-      showToast(`Tipo de operação atualizado para ${OPERATION_TYPE_LABELS[operationType]}.`);
-    } catch (err) {
-      console.error(err);
-      showToast('Erro ao atualizar tipo de operação.', 'error');
-    } finally {
-      setFixingEventId(null);
-    }
-  };
-
-  // Nomes de operadores de painel (busca por substring, case-insensitive)
-  const PAINEL_NAMES = ['joao marcos', 'joão marcos', 'matheus santos'];
-
-  const seedPainelAssignments = async () => {
-    setSeedingAssignments(true);
-    setSeedAssignResult(null);
-    try {
-      // 1. Load operators to find painel operators by name
-      const allOps = await getActiveOperators();
-      const painelOps = allOps.filter((op) =>
-        PAINEL_NAMES.some((n) => op.name.toLowerCase().includes(n)),
-      );
-      if (painelOps.length === 0) {
-        showToast('Operadores de painel não encontrados (Joao Marcos / Matheus Santos).', 'error');
-        return;
-      }
-
-      // 2. Load all studio events without any assignments
-      const all = await getEvents();
-      const targetEvents = all.filter(
-        (ev) => ev.operationType === 'estudio' && (ev.assignments || []).length === 0,
-      );
-
-      if (targetEvents.length === 0) {
-        showToast('Nenhum evento de estúdio sem escalação encontrado.');
-        setSeedingAssignments(false);
-        return;
-      }
-
-      let assignedCount = 0;
-      for (const ev of targetEvents) {
-        for (const op of painelOps) {
-          // Check if operator already assigned (shouldn't be, but safe)
-          const alreadyAssigned = (ev.assignments || []).some((a) => a.operatorId === op.id);
-          if (alreadyAssigned) continue;
-          await assignOperator(ev.id!, {
-            eventId: ev.id!,
-            operatorId: op.id,
-            operatorName: op.name,
-            role: 'Operador de Painel',
-            travelDaysBefore: 0,
-            travelDaysAfter: 0,
-            departureDate: null,
-            returnDate: null,
-            status: 'confirmado',
-          });
-          assignedCount++;
-        }
-      }
-
-      setSeedAssignResult({ assigned: assignedCount, events: targetEvents.length });
-      showToast(`${assignedCount} escalação(ões) adicionada(s) em ${targetEvents.length} evento(s).`);
-      // Reload the verification list
-      setVerificationLoaded(false);
-      await loadVerification();
-    } catch (err) {
-      console.error(err);
-      showToast('Erro ao completar escalações.', 'error');
-    } finally {
-      setSeedingAssignments(false);
     }
   };
 
@@ -926,11 +502,9 @@ export default function ConfiguracoesPage() {
     if (activeTab === 'servicos' && !servicesLoaded) loadServices();
     if (activeTab === 'estudios' && !studiosLoaded) loadStudios();
     if (activeTab === 'pagamentos' && !payCondsLoaded) loadPayConds();
-    if (activeTab === 'modelos') loadDefaultRules(selectedContractType);
     if (activeTab === 'perfis' && !profilesLoaded) loadProfiles();
     if (activeTab === 'feriados' && !holidaysLoaded) loadHolidays();
     if (activeTab === 'auditoria' && !auditLoaded) loadAudit();
-    if (activeTab === 'verificacao' && !verificationLoaded) loadVerification();
     if (activeTab === 'empresas' && !empresasLoaded) loadEmpresas();
     if (activeTab === 'fiscal' && !fiscalLoaded) {
       (async () => {
@@ -944,7 +518,7 @@ export default function ConfiguracoesPage() {
         } catch { setFiscalLoaded(true); }
       })();
     }
-  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, payCondsLoaded, selectedContractType, profilesLoaded, holidaysLoaded, fiscalLoaded, auditLoaded, empresasLoaded, loadRoles, loadServices, loadStudios, loadPayConds, loadDefaultRules, loadProfiles, loadAudit, loadEmpresas]);
+  }, [activeTab, rolesLoaded, servicesLoaded, studiosLoaded, payCondsLoaded, profilesLoaded, holidaysLoaded, fiscalLoaded, auditLoaded, empresasLoaded, loadRoles, loadServices, loadStudios, loadPayConds, loadProfiles, loadAudit, loadEmpresas]);
 
   return (
     <div>
@@ -978,10 +552,6 @@ export default function ConfiguracoesPage() {
           <Globe size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
           Catálogos RemateWeb
         </button>
-        <button className={`tab ${activeTab === 'modelos' ? 'active' : ''}`} onClick={() => setActiveTab('modelos')}>
-          <Briefcase size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-          Modelos de Ganhos
-        </button>
         <button className={`tab ${activeTab === 'perfis' ? 'active' : ''}`} onClick={() => setActiveTab('perfis')}>
           <Tag size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
           Perfis de Pagamento
@@ -1001,10 +571,6 @@ export default function ConfiguracoesPage() {
         <button className={`tab ${activeTab === 'auditoria' ? 'active' : ''}`} onClick={() => setActiveTab('auditoria')}>
           <ShieldCheck size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
           Auditoria
-        </button>
-        <button className={`tab ${activeTab === 'verificacao' ? 'active' : ''}`} onClick={() => setActiveTab('verificacao')}>
-          <CheckCircle size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-          Verificação de Eventos
         </button>
         <button className={`tab ${activeTab === 'empresas' ? 'active' : ''}`} onClick={() => setActiveTab('empresas')}>
           <Briefcase size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
@@ -1274,95 +840,6 @@ export default function ConfiguracoesPage() {
         </div>
       )}
 
-      {/* Modelos de Ganhos Tab */}
-      {activeTab === 'modelos' && (
-        <div className="card animate-in">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div>
-              <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>Modelos de Remuneração Padrão</h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Configure as tabelas de ganhos de referência para cada modelo de contrato</p>
-            </div>
-            <select className="input" value={selectedContractType} onChange={(e) => setSelectedContractType(e.target.value as ContractType)} style={{ width: 'auto' }}>
-              <option value="funcionario">Funcionário (CLT)</option>
-              <option value="freelancer_n1">Freelancer N1</option>
-              <option value="freelancer_n2">Freelancer N2</option>
-            </select>
-          </div>
-
-          <div style={{ marginBottom: '24px' }}>
-            <h4 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '12px' }}>Diárias de Viagem / Evento Externo</h4>
-            <div className="mobile-stack" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', maxWidth: '400px' }}>
-              <div className="input-group">
-                <label>Diária simples (R$)</label>
-                <input className="input" type="number" value={rulesDailyTravel} onChange={(e) => setRulesDailyTravel(Number(e.target.value))} />
-              </div>
-              <div className="input-group">
-                <label>Diária múltipla (2+ leilões/dia) (R$)</label>
-                <input className="input" type="number" value={rulesDailyTravelMultiple} onChange={(e) => setRulesDailyTravelMultiple(Number(e.target.value))} />
-              </div>
-            </div>
-
-            {selectedContractType === 'funcionario' && (
-              <div style={{ maxWidth: '200px', marginTop: '16px' }}>
-                <div className="input-group">
-                  <label>Bônus Fim de Semana/Feriado (R$)</label>
-                  <input className="input" type="number" value={rulesWeekendHolidayBonus} onChange={(e) => setRulesWeekendHolidayBonus(Number(e.target.value))} />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <h4 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-            Tabela de Faixa de Horas (Duração da Transmissão)
-          </h4>
-          <div className="table-container" style={{ marginBottom: '16px' }}>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Mínimo Horas (&gt;=)</th>
-                  <th>Máximo Horas (&lt;)</th>
-                  <th>Valor Dia Útil (R$)</th>
-                  <th>Valor FDS/Feriado (R$)</th>
-                  <th style={{ width: '50px' }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rulesHourRanges.map((range, idx) => (
-                  <tr key={idx}>
-                    <td>
-                      <input className="input" type="number" value={range.minHours} onChange={(e) => updateRange(idx, 'minHours', Number(e.target.value))} style={{ width: '80px' }} />
-                    </td>
-                    <td>
-                      <input className="input" type="number" value={range.maxHours} onChange={(e) => updateRange(idx, 'maxHours', Number(e.target.value))} style={{ width: '80px' }} />
-                    </td>
-                    <td>
-                      <input className="input" type="number" value={range.weekdayValue} onChange={(e) => updateRange(idx, 'weekdayValue', Number(e.target.value))} style={{ width: '120px' }} />
-                    </td>
-                    <td>
-                      <input className="input" type="number" value={range.weekendHolidayValue} onChange={(e) => updateRange(idx, 'weekendHolidayValue', Number(e.target.value))} style={{ width: '120px' }} />
-                    </td>
-                    <td>
-                      <button className="btn btn-ghost btn-icon btn-sm" onClick={() => removeHourRange(idx)} style={{ color: 'var(--error)' }}>
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={addHourRange} style={{ marginBottom: '20px' }}>
-            <Plus size={14} /> Adicionar faixa
-          </button>
-
-          <div>
-            <button className="btn btn-primary" onClick={handleSaveDefaultRules} disabled={rulesSaving}>
-              {rulesSaving ? <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} /> : <><Save size={16} /> Salvar Modelo de Ganhos</>}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Perfis de Pagamento Tab */}
       {activeTab === 'perfis' && (
         <div className="animate-in">
@@ -1370,7 +847,7 @@ export default function ConfiguracoesPage() {
             <div>
               <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>Perfis de Pagamento</h3>
               <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                Crie perfis reutilizáveis (ex: Freelancer N1, Freelancer N2) e atribua-os aos operadores para facilitar ajustes de contrato.
+                Perfis de remuneração reutilizáveis. Atribua-os a operadores ou marque um como <strong>padrão</strong> de um tipo de contrato (substitui os antigos "Modelos de Ganhos").
               </p>
             </div>
             {!editingProfile && (
@@ -1379,38 +856,6 @@ export default function ConfiguracoesPage() {
               </button>
             )}
           </div>
-
-          {/* Seed padrão */}
-          {!editingProfile && (
-            <div className="card" style={{ marginBottom: '20px', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 240 }}>
-                  <p style={{ fontWeight: 600, fontSize: '13px', marginBottom: '4px' }}>Criar Perfis Padrão do Sistema</p>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: 0 }}>
-                    Cria os 4 perfis padrão (Painel CLT, Transmissão CLT, Freelancer N1, Freelancer N2) e atribui automaticamente os operadores sem perfil conforme tipo de contrato e função.
-                  </p>
-                  {seedResult && (
-                    <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--success)' }}>
-                      <strong>{seedResult.profiles} perfil(is) criado(s)</strong> · <strong>{seedResult.assigned} operador(es) atribuído(s)</strong>
-                      {seedResult.names.length > 0 && (
-                        <ul style={{ margin: '6px 0 0 0', paddingLeft: '16px', color: 'var(--text-muted)' }}>
-                          {seedResult.names.map((n, i) => <li key={i}>{n}</li>)}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <button
-                  className="btn btn-primary"
-                  style={{ whiteSpace: 'nowrap', alignSelf: 'center' }}
-                  onClick={seedDefaultProfiles}
-                  disabled={seedingProfiles}
-                >
-                  {seedingProfiles ? 'Criando...' : '⚡ Inicializar Perfis'}
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Profile list */}
           {profiles.length === 0 && !editingProfile && (
@@ -1432,6 +877,11 @@ export default function ConfiguracoesPage() {
                       <span className="badge badge-info">
                         {p.contractType === 'funcionario' ? 'CLT' : p.contractType === 'freelancer_n1' ? 'Freelancer N1' : 'Freelancer N2'}
                       </span>
+                      {p.isDefaultForContract && (
+                        <span className="badge badge-primary" title="Perfil padrão deste tipo de contrato">
+                          ★ Padrão {p.isDefaultForContract === 'funcionario' ? 'CLT' : p.isDefaultForContract === 'freelancer_n1' ? 'N1' : 'N2'}
+                        </span>
+                      )}
                     </div>
                     {p.description && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{p.description}</p>}
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
@@ -1488,6 +938,22 @@ export default function ConfiguracoesPage() {
                     <option value="freelancer_n1">Freelancer N1</option>
                     <option value="freelancer_n2">Freelancer N2</option>
                   </select>
+                </div>
+                <div className="input-group">
+                  <label>Padrão do contrato</label>
+                  <select
+                    className="input"
+                    value={editingProfile.isDefaultForContract || ''}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, isDefaultForContract: (e.target.value || null) as ContractType | null })}
+                  >
+                    <option value="">Não é padrão</option>
+                    <option value="funcionario">Padrão p/ Funcionário (CLT)</option>
+                    <option value="freelancer_n1">Padrão p/ Freelancer N1</option>
+                    <option value="freelancer_n2">Padrão p/ Freelancer N2</option>
+                  </select>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Aplicado a operadores do tipo sem perfil específico.
+                  </span>
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'flex-end', paddingBottom: '4px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
@@ -1798,204 +1264,6 @@ export default function ConfiguracoesPage() {
               {filteredAudit.length > 200 && (
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '8px 12px' }}>Mostrando 200 de {filteredAudit.length} registros. Use os filtros para refinar.</p>
               )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Verificação de Eventos */}
-      {activeTab === 'verificacao' && (
-        <div className="animate-in">
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '20px', gap: '12px', flexWrap: 'wrap' }}>
-            <div>
-              <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>Verificação de Eventos</h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                Detecta eventos sem tipo de operação definido ou eventos externos sem diárias de viagem cadastradas.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button className="btn btn-primary btn-sm" onClick={autoClassifyEvents} disabled={verificationLoading}
-                title="Classifica automaticamente por nome do serviço (Transmissão Estúdio → estúdio, Transmissão Externa → externo, etc.)">
-                <Play size={13} /> Auto-classificar
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => { setVerificationLoaded(false); loadVerification(); }} disabled={verificationLoading}>
-                <Settings size={14} /> Recarregar
-              </button>
-            </div>
-          </div>
-
-          {verificationLoading ? (
-            <div className="skeleton" style={{ height: '200px' }} />
-          ) : verificationLoaded && verificationEvents.length === 0 ? (
-            <div className="card" style={{ textAlign: 'center', padding: '40px', color: 'var(--success)' }}>
-              <CheckCircle size={32} style={{ opacity: 0.7, marginBottom: '12px' }} />
-              <p style={{ fontSize: '14px', fontWeight: 600 }}>Nenhuma inconsistência encontrada</p>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Todos os eventos têm tipo definido e diárias cadastradas.</p>
-            </div>
-          ) : verificationLoaded && verificationEvents.length > 0 ? (
-            <div>
-              <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                <span className="badge badge-error" style={{ padding: '6px 12px', fontSize: '13px' }}>
-                  {verificationEvents.length} evento(s) com problemas
-                </span>
-                <span className="badge" style={{ padding: '6px 12px', fontSize: '13px' }}>
-                  {verificationEvents.filter(v => !v.event.operationType).length} sem tipo
-                </span>
-                <span className="badge badge-warning" style={{ padding: '6px 12px', fontSize: '13px' }}>
-                  {verificationEvents.filter(v => v.missingTravelFor.length > 0).length} externos sem diárias
-                </span>
-              </div>
-
-              {verificationEvents.map((v) => {
-                const ev = v.event;
-                const evDate = ev.date instanceof Date ? ev.date
-                  : typeof ev.date === 'object' && ev.date !== null && 'toDate' in ev.date
-                    ? (ev.date as unknown as { toDate: () => Date }).toDate()
-                    : new Date(ev.date as unknown as string);
-                return (
-                  <div key={ev.id} className="card" style={{ marginBottom: '12px', borderLeft: '3px solid var(--error)' }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                      <div style={{ flex: 1, minWidth: 220 }}>
-                        <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '2px' }}>{ev.title}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                          {format(evDate, "dd/MM/yyyy (EEEE)", { locale: ptBR })} · {ev.city}/{ev.state}
-                          {ev.operationType && (
-                            <span className={`badge badge-primary`} style={{ marginLeft: '6px', fontSize: '11px' }}>
-                              {OPERATION_TYPE_LABELS[ev.operationType]}
-                            </span>
-                          )}
-                        </div>
-                        {v.issues.map((issue, i) => (
-                          <div key={i} style={{ fontSize: '12px', color: 'var(--error)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                            <span>⚠</span> {issue}
-                          </div>
-                        ))}
-                      </div>
-                      {!ev.operationType && (
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Definir tipo:</span>
-                          {(['estudio', 'externo', 'retransmissao'] as OperationType[]).map((t) => (
-                            <button
-                              key={t}
-                              className="btn btn-ghost btn-sm"
-                              style={{ fontSize: '11px', padding: '4px 10px' }}
-                              disabled={fixingEventId === ev.id}
-                              onClick={() => fixEventType(ev.id!, t)}
-                            >
-                              {OPERATION_TYPE_LABELS[t]}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    {ev.assignments && ev.assignments.length > 0 && (
-                      <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {ev.assignments.map((a, i) => {
-                          const hasTravel = (a.travelDaysBefore || 0) + (a.travelDaysAfter || 0) > 0;
-                          return (
-                            <span
-                              key={i}
-                              style={{
-                                fontSize: '11px',
-                                padding: '3px 8px',
-                                borderRadius: '12px',
-                                background: hasTravel ? 'var(--success-bg)' : (ev.operationType === 'externo' ? 'var(--error-bg)' : 'var(--bg-secondary)'),
-                                color: hasTravel ? 'var(--success)' : (ev.operationType === 'externo' ? 'var(--error)' : 'var(--text-secondary)'),
-                              }}
-                            >
-                              {a.operatorName || a.operatorId}
-                              {hasTravel && ` (${a.travelDaysBefore}+${a.travelDaysAfter} dias)`}
-                              {!hasTravel && ev.operationType === 'externo' && ' ⚠ sem diária'}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="card" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-              <p style={{ fontSize: '13px' }}>Clique em <strong>Auto-classificar</strong> ou <strong>Recarregar</strong> para analisar os eventos.</p>
-            </div>
-          )}
-
-          {/* Eventos sem escalação */}
-          {verificationLoaded && unassignedEvents.length > 0 && (
-            <div style={{ marginTop: '28px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <h4 style={{ fontSize: '14px', fontWeight: 600 }}>Eventos sem operadores escalados</h4>
-                  <span className="badge badge-warning" style={{ padding: '4px 10px', fontSize: '12px' }}>
-                    {unassignedEvents.length}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  {seedAssignResult && (
-                    <span style={{ fontSize: '12px', color: 'var(--success)' }}>
-                      ✓ {seedAssignResult.assigned} escalações em {seedAssignResult.events} eventos
-                    </span>
-                  )}
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={seedPainelAssignments}
-                    disabled={seedingAssignments}
-                    title="Adiciona Joao Marcos e Matheus Santos a todos os eventos de estúdio sem escalação"
-                  >
-                    <Users size={13} /> {seedingAssignments ? 'Processando...' : 'Completar Escala de Painel'}
-                  </button>
-                </div>
-              </div>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                Estúdio e Externo com tipo definido mas nenhum operador atribuído. Clique em <strong>Completar Escala de Painel</strong> para adicionar automaticamente Joao Marcos e Matheus Santos aos eventos de estúdio.
-              </p>
-              <div className="table-container">
-                <table className="table" style={{ fontSize: '12.5px' }}>
-                  <thead>
-                    <tr>
-                      <th>Data</th>
-                      <th>Evento</th>
-                      <th>Tipo</th>
-                      <th>Serviços</th>
-                      <th>Cidade</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {unassignedEvents.map((u) => {
-                      const ev = u.event;
-                      const evDate = ev.date instanceof Date ? ev.date
-                        : typeof ev.date === 'object' && ev.date !== null && 'toDate' in ev.date
-                          ? (ev.date as unknown as { toDate: () => Date }).toDate()
-                          : new Date(ev.date as unknown as string);
-                      return (
-                        <tr key={ev.id}>
-                          <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                            {format(evDate, 'dd/MM/yyyy (EEE)', { locale: ptBR })}
-                          </td>
-                          <td style={{ fontWeight: 500 }}>{ev.title}</td>
-                          <td>
-                            <span className={`badge ${ev.operationType === 'externo' ? 'badge-primary' : 'badge-accent'}`} style={{ fontSize: '11px' }}>
-                              {ev.operationType ? OPERATION_TYPE_LABELS[ev.operationType] : '—'}
-                            </span>
-                          </td>
-                          <td style={{ color: 'var(--text-secondary)', fontSize: '11.5px' }}>
-                            {u.services.join(', ') || '—'}
-                          </td>
-                          <td style={{ color: 'var(--text-muted)', fontSize: '11.5px' }}>
-                            {ev.city}{ev.state ? `/${ev.state}` : ''}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          {verificationLoaded && unassignedEvents.length === 0 && (
-            <div style={{ marginTop: '20px', fontSize: '12px', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <CheckCircle size={14} /> Todos os eventos (estúdio/externo) com tipo definido têm operadores escalados.
             </div>
           )}
         </div>

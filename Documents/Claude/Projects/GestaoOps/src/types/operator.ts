@@ -46,6 +46,7 @@ export interface PaymentProfile {
   weekendHolidayBonus: number;
   restDayExtra?: number;
   restDayMatchesMainRules?: boolean; // quando true, dia de folga usa a mesma tabela de horas (não o padrão N2)
+  isDefaultForContract?: ContractType | null; // quando definido, este perfil é o padrão do tipo de contrato (substitui os antigos "Modelos de Ganhos")
   isActive: boolean;
   createdAt?: Date;
   updatedAt?: Date;

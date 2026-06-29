@@ -7,7 +7,7 @@ import { getDocument, getCollection } from '@/lib/firestore';
 import { GestaoEvent, EventAssignment } from '@/types/event';
 import { Operator, PaymentRules, PaymentProfile, isOperatorRestDay } from '@/types/operator';
 import { getPaymentProfiles } from '@/services/paymentProfiles';
-import { resolvePaymentRules } from '@/lib/resolve-payment-rules';
+import { resolvePaymentRules, defaultRulesForContract } from '@/lib/resolve-payment-rules';
 import { calculateOperatorPayment, calculatePanelShiftValue } from '@/lib/payment-engine';
 import { Holiday } from '@/types/payment';
 import { getScheduleNotes, setScheduleNote, deleteScheduleNote } from '@/services/scheduleNotes';
@@ -77,9 +77,6 @@ export default function EscalaMensalPage() {
   const [operators, setOperators] = useState<OperatorWithId[]>([]);
   const [holidays, setHolidays] = useState<{ date: string }[]>([]);
   const [roles, setRoles] = useState<string[]>(['Diretor', 'DTV', 'vMix', 'Apoio']);
-  const [rulesFunc, setRulesFunc] = useState<PaymentRules | null>(null);
-  const [rulesN1, setRulesN1] = useState<PaymentRules | null>(null);
-  const [rulesN2, setRulesN2] = useState<PaymentRules | null>(null);
   const [paymentProfiles, setPaymentProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({});
   const [mtValue, setMtValue] = useState(MT_DEFAULT_VALUE);
@@ -117,13 +114,10 @@ export default function EscalaMensalPage() {
     try {
       const myOp = user ? await getOperatorByUid(user.uid).catch(() => null) : null;
       if (myOp) setMyOperatorId(myOp.id);
-      const [evts, ops, rolesDoc, funcDoc, n1Doc, n2Doc, svcDoc, mtDoc, hols, schedNotes, pShifts, profs] = await Promise.all([
+      const [evts, ops, rolesDoc, svcDoc, mtDoc, hols, schedNotes, pShifts, profs] = await Promise.all([
         getEvents().catch(() => [] as EventWithId[]),
         getActiveOperators().catch(() => [] as OperatorWithId[]),
         getDocument<{ list: string[] }>('settings', 'roles').catch(() => null),
-        getDocument<PaymentRules>('settings', 'default_rules_funcionario').catch(() => null),
-        getDocument<PaymentRules>('settings', 'default_rules_freelancer_n1').catch(() => null),
-        getDocument<PaymentRules>('settings', 'default_rules_freelancer_n2').catch(() => null),
         getDocument<{ catalog?: unknown }>('settings', 'services').catch(() => null),
         getDocument<{ value: number }>('settings', 'mt_studio').catch(() => null),
         getCollection<{ date: string }>('holidays').catch(() => []),
@@ -138,9 +132,6 @@ export default function EscalaMensalPage() {
       setPanelShifts(pShifts);
       if (rolesDoc?.list?.length) { setRoles(rolesDoc.list); setCellRole((p) => p || rolesDoc.list[0]); }
       else setCellRole((p) => p || 'Diretor');
-      if (funcDoc) setRulesFunc({ ...funcDoc, contractType: 'funcionario' });
-      if (n1Doc) setRulesN1({ ...n1Doc, contractType: 'freelancer_n1' });
-      if (n2Doc) setRulesN2({ ...n2Doc, contractType: 'freelancer_n2' });
       setPaymentProfiles(profs);
       if (mtDoc?.value) setMtValue(mtDoc.value);
       if (svcDoc?.catalog) {
@@ -175,8 +166,11 @@ export default function EscalaMensalPage() {
 
   const resolveRules = useCallback((op?: OperatorWithId): PaymentRules | null => {
     if (!op) return null;
-    return resolvePaymentRules(op, paymentProfiles, rulesFunc, rulesN1, rulesN2);
-  }, [paymentProfiles, rulesFunc, rulesN1, rulesN2]);
+    return resolvePaymentRules(op, paymentProfiles);
+  }, [paymentProfiles]);
+
+  // Tabela de folga: perfil padrão Freelancer N2.
+  const restDayRules = useMemo(() => defaultRulesForContract(paymentProfiles, 'freelancer_n2'), [paymentProfiles]);
 
   const operatorsById = useMemo(() => new Map(operators.map((o) => [o.id, o])), [operators]);
 
@@ -208,12 +202,12 @@ export default function EscalaMensalPage() {
     const onRestDay = op ? isOperatorRestDay(op, toDate(evt.date)) : !!a.onRestDay;
     const assignment = a.onRestDay === onRestDay ? a : { ...a, onRestDay };
     try {
-      const pay = calculateOperatorPayment(evt, assignment, rules, holidays as unknown as Holiday[], opAssignments, rulesN2, fixedValues);
+      const pay = calculateOperatorPayment(evt, assignment, rules, holidays as unknown as Holiday[], opAssignments, restDayRules, fixedValues);
       return { value: pay.totalValue, isReal };
     } catch {
       return { value: 0, isReal };
     }
-  }, [holidays, fixedValues, mtValue, resolveRules, rulesN2]);
+  }, [holidays, fixedValues, mtValue, resolveRules, restDayRules]);
 
   // Eventos por dia (chave) — usado no dropdown da célula.
   const eventsByDay = useMemo(() => {
@@ -373,7 +367,7 @@ export default function EscalaMensalPage() {
         });
         const rules = resolveRules(op);
         const onRest = op ? isOperatorRestDay(op, d) : false;
-        const { value, durationMinutes } = calculatePanelShiftValue([{ start: new Date(entryMs), end: new Date(exitMs), assignment: {} }], rules, isSpecial, onRest, rulesN2);
+        const { value, durationMinutes } = calculatePanelShiftValue([{ start: new Date(entryMs), end: new Date(exitMs), assignment: {} }], rules, isSpecial, onRest, restDayRules);
         const isReal = lastEnd > 0 && lastEnd < Date.now();
         const windowLabel = entryMs && exitMs ? `${format(new Date(entryMs), 'HH:mm')}–${format(new Date(exitMs), 'HH:mm')}` : '';
         if (!panelCov.has(ps.operatorId)) panelCov.set(ps.operatorId, new Map());
@@ -391,7 +385,7 @@ export default function EscalaMensalPage() {
       addTotal(opId, d, VIAGEM_VALUE);
     }
     return { enrichedGrid: eg, monthTotals: totals, weekTotals: wTotals, panelCoverage: panelCov };
-  }, [events, notes, panelShifts, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd, weeks, isHoliday, resolveRules, rulesN2]);
+  }, [events, notes, panelShifts, operatorsById, assignmentsByOperator, computeValue, monthStart, monthEnd, weeks, isHoliday, resolveRules, restDayRules]);
 
   // ----- mutations -----
   const toggleAssign = async (evt: EventWithId, op: OperatorWithId) => {

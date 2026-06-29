@@ -5,9 +5,9 @@ import { useAuth } from '@/lib/auth-context';
 import { getOperatorByUid } from '@/services/operators';
 import { getEventsByOperator } from '@/services/events';
 import { getDocument, getCollection } from '@/lib/firestore';
-import { Operator, PaymentRules, PaymentProfile } from '@/types/operator';
+import { Operator, PaymentProfile } from '@/types/operator';
 import { getPaymentProfiles } from '@/services/paymentProfiles';
-import { resolvePaymentRules } from '@/lib/resolve-payment-rules';
+import { resolvePaymentRules, defaultRulesForContract } from '@/lib/resolve-payment-rules';
 import { GestaoEvent, OPERATION_TYPE_LABELS, OPERATION_TYPE_BADGE } from '@/types/event';
 import { ServicesSettings, serviceFixedValues } from '@/types/service';
 import { Holiday } from '@/types/payment';
@@ -44,9 +44,6 @@ export default function MeusPagamentosPage() {
   const [loading, setLoading] = useState(true);
   const [filterMonth, setFilterMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({});
-  const [defaultRulesFunc, setDefaultRulesFunc] = useState<PaymentRules | null>(null);
-  const [defaultRulesN1, setDefaultRulesN1] = useState<PaymentRules | null>(null);
-  const [defaultRulesN2, setDefaultRulesN2] = useState<PaymentRules | null>(null);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [paymentProfiles, setPaymentProfiles] = useState<(PaymentProfile & { id: string })[]>([]);
 
@@ -62,18 +59,12 @@ export default function MeusPagamentosPage() {
           setEvents(evts);
         }
         // Catálogo (valores fixos por serviço), tabelas padrão e feriados
-        const [svcDoc, funcDoc, n1Doc, n2Doc, hol, profs] = await Promise.all([
+        const [svcDoc, hol, profs] = await Promise.all([
           getDocument<ServicesSettings>('settings', 'services').catch(() => null),
-          getDocument<PaymentRules>('settings', 'default_rules_funcionario').catch(() => null),
-          getDocument<PaymentRules>('settings', 'default_rules_freelancer_n1').catch(() => null),
-          getDocument<PaymentRules>('settings', 'default_rules_freelancer_n2').catch(() => null),
           getCollection<Holiday>('holidays').catch(() => []),
           getPaymentProfiles().catch(() => [] as (PaymentProfile & { id: string })[]),
         ]);
         if (svcDoc?.catalog) setFixedValues(serviceFixedValues(svcDoc.catalog));
-        if (funcDoc) setDefaultRulesFunc({ ...(funcDoc as PaymentRules), contractType: 'funcionario' });
-        if (n1Doc) setDefaultRulesN1({ ...(n1Doc as PaymentRules), contractType: 'freelancer_n1' });
-        if (n2Doc) setDefaultRulesN2({ ...(n2Doc as PaymentRules), contractType: 'freelancer_n2' });
         setPaymentProfiles(profs);
         setHolidays(hol as Holiday[]);
       } catch (err) {
@@ -94,6 +85,8 @@ export default function MeusPagamentosPage() {
     const interval = { start: monthStart, end: monthEnd };
 
     const computed: EventPayment[] = [];
+    // Tabela de folga: perfil padrão Freelancer N2.
+    const restDayRules = defaultRulesForContract(paymentProfiles, 'freelancer_n2');
     events
       .filter((e) => isWithinInterval(toDate(e.date), interval))
       .forEach((evt) => {
@@ -102,7 +95,7 @@ export default function MeusPagamentosPage() {
 
         const travelDays = (myAssignment.travelDaysBefore || 0) + (myAssignment.travelDaysAfter || 0);
 
-        const rules = resolvePaymentRules(operator, paymentProfiles, defaultRulesFunc, defaultRulesN1, defaultRulesN2) || undefined;
+        const rules = resolvePaymentRules(operator, paymentProfiles) || undefined;
 
         if (rules) {
           try {
@@ -110,7 +103,7 @@ export default function MeusPagamentosPage() {
             const allMyEvents = events
               .filter((e) => (e.assignments || []).some((a) => a.operatorId === operator.id))
               .map((e) => ({ eventId: e.id, date: toDate(e.date), operationType: e.operationType }));
-            const payResult = calculateOperatorPayment(evt, myAssignment, rules, holidays, allMyEvents, defaultRulesN2, fixedValues);
+            const payResult = calculateOperatorPayment(evt, myAssignment, rules, holidays, allMyEvents, restDayRules, fixedValues);
             computed.push({
               evt,
               gross: payResult.baseValue + payResult.bonusValue + payResult.restDayExtra + payResult.serviceExtra,
@@ -130,7 +123,7 @@ export default function MeusPagamentosPage() {
       });
 
     setPayments(computed.sort((a, b) => toDate(b.evt.date).getTime() - toDate(a.evt.date).getTime()));
-  }, [operator, events, filterMonth, fixedValues, defaultRulesFunc, defaultRulesN1, defaultRulesN2, holidays, paymentProfiles]);
+  }, [operator, events, filterMonth, fixedValues, holidays, paymentProfiles]);
 
   if (loading) {
     return (
