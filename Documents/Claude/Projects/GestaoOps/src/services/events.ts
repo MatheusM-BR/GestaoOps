@@ -66,7 +66,9 @@ export async function createEvent(data: Omit<GestaoEvent, 'id' | 'createdAt' | '
 }
 
 export async function updateEvent(id: string, data: Partial<GestaoEvent>): Promise<void> {
-  return updateDocument(COLLECTION, id, data as Record<string, unknown>);
+  // Firestore updateDoc rejeita undefined — remove chaves indefinidas (campo fica inalterado).
+  // Para limpar um campo, passe null explicitamente.
+  return updateDocument(COLLECTION, id, stripUndefined(data as Record<string, unknown>));
 }
 
 export async function deleteEvent(id: string): Promise<void> {
