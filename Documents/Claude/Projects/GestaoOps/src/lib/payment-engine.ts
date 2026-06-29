@@ -258,22 +258,26 @@ export function calculateOperatorPayment(
     }
   }
 
-  // 6. Dia de folga trabalhado → paga pela tabela N2 por padrão (substitui baseValue, não soma).
-  //    Se restDayMatchesMainRules=true, usa a própria tabela do operador (não N2).
-  //    Fallback: restDayExtra fixo configurado no operador.
+  // 6. Dia de folga trabalhado → substitui baseValue (não soma). A tabela usada
+  //    depende da FUNÇÃO exercida na folga (assignment.role):
+  //    - função de painel + restDayMatchesMainRules → tabela do próprio painel;
+  //    - qualquer outra função (ex.: transmissão) → tabela N2 (CLT em folga = freelancer).
+  //    Piso: trabalhar na folga sempre paga ao menos restDayExtra (ex.: painel <4h = R$100).
   let restDayExtra = 0;
   if (assignment.onRestDay) {
-    const effectiveRestDayRules = safeRules.restDayMatchesMainRules ? safeRules : restDayRules;
+    const isPanelDuty = /painel/i.test(assignment.role || '');
+    const effectiveRestDayRules = (safeRules.restDayMatchesMainRules && isPanelDuty) ? safeRules : restDayRules;
     if (effectiveRestDayRules?.hourRanges?.length) {
       const r = findHourRange(effectiveRestDayRules.hourRanges, hours);
-      if (r) {
-        restDayExtra = isSpecialDay ? r.weekendHolidayValue : r.weekdayValue;
-      } else if (safeRules.restDayExtra && safeRules.restDayExtra > 0) {
-        restDayExtra = safeRules.restDayExtra;
-      }
-    } else if (safeRules.restDayExtra && safeRules.restDayExtra > 0) {
-      restDayExtra = safeRules.restDayExtra;
+      if (r) restDayExtra = isSpecialDay ? r.weekendHolidayValue : r.weekdayValue;
+      // Em folga, trabalhar (mesmo <4h) paga ao menos a 1ª faixa positiva — remove o "0" das horas baixas.
+      const firstPaid = [...effectiveRestDayRules.hourRanges]
+        .sort((a, b) => a.minHours - b.minHours)
+        .map((x) => (isSpecialDay ? x.weekendHolidayValue : x.weekdayValue))
+        .find((v) => v > 0) ?? 0;
+      if (firstPaid > restDayExtra) restDayExtra = firstPaid;
     }
+    if ((safeRules.restDayExtra || 0) > restDayExtra) restDayExtra = safeRules.restDayExtra!;
   }
 
   // 7. Valores fixos de serviço (ex.: Programa Bora Leilão = R$75, meio período).
