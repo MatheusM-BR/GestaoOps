@@ -9,7 +9,8 @@ import { authenticate, setTokenManually } from '@/services/remateweb-api';
 import { addDocument, getCollection, deleteDocument, setDocument, getDocument } from '@/lib/firestore';
 import { useCatalogs } from '@/lib/useCatalogs';
 import { DEFAULT_PAYMENT_CONDITION, GestaoEvent, OperationType, OPERATION_TYPE_LABELS } from '@/types/event';
-import { getEvents, updateEvent } from '@/services/events';
+import { getEvents, updateEvent, assignOperator } from '@/services/events';
+import { getActiveOperators } from '@/services/operators';
 import { ContractType, HourRange, PaymentProfile } from '@/types/operator';
 import { getPaymentProfiles, addPaymentProfile, updatePaymentProfile, deletePaymentProfile } from '@/services/paymentProfiles';
 import {
@@ -89,6 +90,8 @@ export default function ConfiguracoesPage() {
   const [verificationLoaded, setVerificationLoaded] = useState(false);
   const [fixingEventId, setFixingEventId] = useState<string | null>(null);
   const [unassignedEvents, setUnassignedEvents] = useState<Array<{ event: GestaoEvent & { id: string }; services: string[] }>>([]);
+  const [seedingAssignments, setSeedingAssignments] = useState(false);
+  const [seedAssignResult, setSeedAssignResult] = useState<{ assigned: number; events: number } | null>(null);
 
   // Holidays
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -685,6 +688,69 @@ export default function ConfiguracoesPage() {
       showToast('Erro ao atualizar tipo de operação.', 'error');
     } finally {
       setFixingEventId(null);
+    }
+  };
+
+  // Nomes de operadores de painel (busca por substring, case-insensitive)
+  const PAINEL_NAMES = ['joao marcos', 'joão marcos', 'matheus santos'];
+
+  const seedPainelAssignments = async () => {
+    setSeedingAssignments(true);
+    setSeedAssignResult(null);
+    try {
+      // 1. Load operators to find painel operators by name
+      const allOps = await getActiveOperators();
+      const painelOps = allOps.filter((op) =>
+        PAINEL_NAMES.some((n) => op.name.toLowerCase().includes(n)),
+      );
+      if (painelOps.length === 0) {
+        showToast('Operadores de painel não encontrados (Joao Marcos / Matheus Santos).', 'error');
+        return;
+      }
+
+      // 2. Load all studio events without any assignments
+      const all = await getEvents();
+      const targetEvents = all.filter(
+        (ev) => ev.operationType === 'estudio' && (ev.assignments || []).length === 0,
+      );
+
+      if (targetEvents.length === 0) {
+        showToast('Nenhum evento de estúdio sem escalação encontrado.');
+        setSeedingAssignments(false);
+        return;
+      }
+
+      let assignedCount = 0;
+      for (const ev of targetEvents) {
+        for (const op of painelOps) {
+          // Check if operator already assigned (shouldn't be, but safe)
+          const alreadyAssigned = (ev.assignments || []).some((a) => a.operatorId === op.id);
+          if (alreadyAssigned) continue;
+          await assignOperator(ev.id!, {
+            eventId: ev.id!,
+            operatorId: op.id,
+            operatorName: op.name,
+            role: 'Operador de Painel',
+            travelDaysBefore: 0,
+            travelDaysAfter: 0,
+            departureDate: null,
+            returnDate: null,
+            status: 'confirmado',
+          });
+          assignedCount++;
+        }
+      }
+
+      setSeedAssignResult({ assigned: assignedCount, events: targetEvents.length });
+      showToast(`${assignedCount} escalação(ões) adicionada(s) em ${targetEvents.length} evento(s).`);
+      // Reload the verification list
+      setVerificationLoaded(false);
+      await loadVerification();
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao completar escalações.', 'error');
+    } finally {
+      setSeedingAssignments(false);
     }
   };
 
@@ -1858,14 +1924,31 @@ export default function ConfiguracoesPage() {
           {/* Eventos sem escalação */}
           {verificationLoaded && unassignedEvents.length > 0 && (
             <div style={{ marginTop: '28px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-                <h4 style={{ fontSize: '14px', fontWeight: 600 }}>Eventos sem operadores escalados</h4>
-                <span className="badge badge-warning" style={{ padding: '4px 10px', fontSize: '12px' }}>
-                  {unassignedEvents.length}
-                </span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h4 style={{ fontSize: '14px', fontWeight: 600 }}>Eventos sem operadores escalados</h4>
+                  <span className="badge badge-warning" style={{ padding: '4px 10px', fontSize: '12px' }}>
+                    {unassignedEvents.length}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {seedAssignResult && (
+                    <span style={{ fontSize: '12px', color: 'var(--success)' }}>
+                      ✓ {seedAssignResult.assigned} escalações em {seedAssignResult.events} eventos
+                    </span>
+                  )}
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={seedPainelAssignments}
+                    disabled={seedingAssignments}
+                    title="Adiciona Joao Marcos e Matheus Santos a todos os eventos de estúdio sem escalação"
+                  >
+                    <Users size={13} /> {seedingAssignments ? 'Processando...' : 'Completar Escala de Painel'}
+                  </button>
+                </div>
               </div>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                Estúdio e Externo com tipo definido mas nenhum operador atribuído. Use a planilha de escala para preencher.
+                Estúdio e Externo com tipo definido mas nenhum operador atribuído. Clique em <strong>Completar Escala de Painel</strong> para adicionar automaticamente Joao Marcos e Matheus Santos aos eventos de estúdio.
               </p>
               <div className="table-container">
                 <table className="table" style={{ fontSize: '12.5px' }}>
