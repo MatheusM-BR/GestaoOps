@@ -34,6 +34,10 @@ $Ver = '?'
 try { $Ver = (& $YtDlp --version 2>$null).Trim() } catch {}
 
 $script:Jobs = [hashtable]::Synchronized(@{})
+$script:Clients = @{}
+$script:HadClient = $false
+$script:LastClientLeft = Get-Date
+$script:StartedAt = Get-Date
 
 function Cors($r) {
     $r.AddHeader('Access-Control-Allow-Origin','*')
@@ -86,12 +90,32 @@ try { $http.Start() } catch {
     try {
         $running = Invoke-RestMethod "http://localhost:$Port/" -TimeoutSec 2
         if ($running.status -eq 'ok') {
-            Write-Host "`n  [OK] Backend ja esta rodando na porta $Port. Volte ao GestRW.`n"
-            exit 0
+            if ($running.lifecycle -eq 1) {
+                Write-Host "`n  [OK] Backend atualizado ja esta rodando na porta $Port.`n"
+                exit 0
+            }
+            # Uma versao antiga nao recebe heartbeat. Substituir apenas o nosso servidor.
+            $scriptPath = [IO.Path]::GetFullPath($MyInvocation.MyCommand.Path)
+            $scriptPattern = '(?i)(?:^|\s)-File\s+"?' + [regex]::Escape($scriptPath) + '(?:"|\s|$)'
+            $oldServers = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match $scriptPattern })
+            foreach ($old in $oldServers) { & taskkill.exe /PID $old.ProcessId /T /F >$null 2>&1 }
+            if ($oldServers.Count -gt 0) {
+                for ($attempt = 0; $attempt -lt 12 -and !$http.IsListening; $attempt++) {
+                    Start-Sleep -Milliseconds 500
+                    try { $http.Close() } catch {}
+                    $http = [Net.HttpListener]::new()
+                    $http.Prefixes.Add("http://localhost:${Port}/")
+                    try { $http.Start() } catch { $lastListenError = $_.Exception.Message }
+                }
+                if ($http.IsListening) { Write-Host "  [OK] Backend antigo substituido." }
+            } else { throw 'Processo do backend antigo nao encontrado.' }
         }
     } catch {}
-    Write-Host "`n  [ERRO] Porta $Port ocupada por outro programa.`n"
-    Read-Host 'Pressione Enter para sair'; exit 1
+    if (!$http.IsListening) {
+        Write-Host "`n  [ERRO] Porta $Port ocupada por outro programa ou nao foi possivel substituir o backend antigo. $lastListenError`n"
+        Read-Host 'Pressione Enter para sair'; exit 1
+    }
 }
 # So limpar downloads antigos depois de assumir a porta; outra instancia pode estar trabalhando.
 if (Test-Path $DlBase) {
@@ -104,8 +128,29 @@ Write-Host "  Volte ao GestaoOps - conecta automaticamente."
 Write-Host "  Ctrl+C para parar.`n"
 
 try {
+$pending = $null
 while ($http.IsListening) {
-    $ctx = $http.GetContext()
+    if (!$pending) { $pending = $http.GetContextAsync() }
+    if (!$pending.Wait(2000)) {
+        $now = Get-Date
+        foreach ($id in @($script:Clients.Keys)) {
+            if (($now - $script:Clients[$id]).TotalSeconds -gt 120) {
+                $script:Clients.Remove($id)
+                if ($script:Clients.Count -eq 0) { $script:LastClientLeft = $now }
+            }
+        }
+        if ($script:Clients.Count -eq 0) {
+            $idle = if ($script:HadClient) { ($now - $script:LastClientLeft).TotalSeconds } else { ($now - $script:StartedAt).TotalSeconds }
+            $limit = if ($script:HadClient) { 15 } else { 60 }
+            if ($idle -ge $limit) {
+                Write-Host "  [OK] Aba Downloader fechada ou inativa. Encerrando backend."
+                break
+            }
+        }
+        continue
+    }
+    $ctx = $pending.Result
+    $pending = $null
     $method = $ctx.Request.HttpMethod
     $path   = $ctx.Request.Url.AbsolutePath
 
@@ -118,7 +163,26 @@ while ($http.IsListening) {
     try {
         # ── GET / ──
         if ($path -eq '/') {
-            RespondJson $ctx @{ status='ok'; ytdlp=$Ver; ffmpeg=$HasFfmpeg }
+            RespondJson $ctx @{ status='ok'; ytdlp=$Ver; ffmpeg=$HasFfmpeg; lifecycle=1 }
+        }
+
+        # Cada aba envia seu proprio identificador; outras abas mantem o servidor vivo.
+        elseif ($path -eq '/api/heartbeat' -and $method -eq 'POST') {
+            $data = ReadBody $ctx
+            $id = "$($data.id)"
+            if ($id -notmatch '^[0-9a-f-]{36}$') { RespondJson $ctx @{ error='Identificador invalido.' } 400; continue }
+            $script:Clients[$id] = Get-Date
+            $script:HadClient = $true
+            RespondJson $ctx @{ ok=$true }
+        }
+        elseif ($path -eq '/api/goodbye' -and $method -eq 'POST') {
+            $data = ReadBody $ctx
+            $id = "$($data.id)"
+            if ($script:Clients.ContainsKey($id)) {
+                $script:Clients.Remove($id)
+                if ($script:Clients.Count -eq 0) { $script:LastClientLeft = Get-Date }
+            }
+            RespondJson $ctx @{ ok=$true }
         }
 
         # ── POST /api/info ──
@@ -401,5 +465,13 @@ while ($http.IsListening) {
 }
 } finally {
     $http.Stop()
+    foreach ($job in @($script:Jobs.Values)) {
+        try {
+            if ($job.proc -and !$job.proc.HasExited) {
+                # cmd.exe e sua arvore incluem yt-dlp e ffmpeg deste download.
+                & taskkill.exe /PID $job.proc.Id /T /F >$null 2>&1
+            }
+        } catch {}
+    }
     Write-Host "`n  Servidor encerrado."
 }

@@ -193,12 +193,6 @@ REM ================================================================
 REM  INICIAR
 REM ================================================================
 echo.
-powershell -NoProfile -Command "try { $r = Invoke-RestMethod 'http://localhost:5000/' -TimeoutSec 2; if ($r.status -eq 'ok') { exit 0 } } catch {}; exit 1"
-if not errorlevel 1 (
-    echo  [OK] Servidor do GestRW ja esta rodando na porta 5000.
-    echo       Volte ao navegador. Nao e preciso abrir outra janela.
-    exit /b 0
-)
 echo  ============================================================
 echo    Tudo pronto! Iniciando servidor...
 echo    Volte ao GestRW - conecta automaticamente.
@@ -207,7 +201,7 @@ echo  ============================================================
 echo.
 color 0B
 powershell -ExecutionPolicy Bypass -File "%SERVER%"
-pause
+if errorlevel 1 pause
 `;
 }
 
@@ -241,6 +235,7 @@ export default function DownloaderPage() {
   const [jobId, setJobId] = useState<string | null>(null);
 
   const [connected, setConnected] = useState<boolean | null>(null);
+  const [backendOutdated, setBackendOutdated] = useState(false);
   const [backendInfo, setBackendInfo] = useState<string>('');
 
   const consoleRef = useRef<HTMLDivElement>(null);
@@ -252,6 +247,12 @@ export default function DownloaderPage() {
     try {
       const res = await fetch(`${API_BASE}/`, { signal: AbortSignal.timeout(3000) });
       const d = await res.json();
+      if (!res.ok || d.lifecycle !== 1) {
+        setBackendOutdated(res.ok && d.status === 'ok');
+        setConnected(false);
+        return false;
+      }
+      setBackendOutdated(false);
       setConnected(true);
       setBackendInfo(d.ytdlp ? `yt-dlp ${d.ytdlp} · ffmpeg: ${d.ffmpeg ? 'OK' : 'ausente'}` : '');
       return true;
@@ -281,6 +282,32 @@ export default function DownloaderPage() {
       };
     }
   }, [connected, checkConnection]);
+
+  useEffect(() => {
+    if (!connected) return;
+    const id = crypto.randomUUID();
+    const payload = JSON.stringify({ id });
+    const heartbeat = () => {
+      fetch(`${API_BASE}/api/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      }).then((response) => {
+        if (!response.ok) setConnected(false);
+      }).catch(() => setConnected(false));
+    };
+    const goodbye = () => {
+      navigator.sendBeacon(`${API_BASE}/api/goodbye`, new Blob([payload], { type: 'text/plain' }));
+    };
+    heartbeat();
+    const timer = setInterval(heartbeat, 5000);
+    window.addEventListener('pagehide', goodbye);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('pagehide', goodbye);
+      goodbye();
+    };
+  }, [connected]);
 
   const fetchInfo = useCallback(async () => {
     if (!url.trim()) { setFetchError('Informe a URL do vídeo.'); return; }
@@ -393,8 +420,7 @@ export default function DownloaderPage() {
           <div style={{ fontSize: 48, marginBottom: 16 }}>⬇</div>
           <h2 style={{ margin: '0 0 8px', fontSize: 22 }}>YT Downloader Backend</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 24 }}>
-            Para baixar vídeos, um servidor local roda no seu computador.<br />
-            <strong>Não precisa instalar nada</strong> — o instalador faz tudo sozinho.
+            {backendOutdated ? 'Uma versão antiga do backend está ativa. Execute o instalador para substituí-la automaticamente.' : <>Para baixar vídeos, um servidor local roda no seu computador.<br /><strong>Não precisa instalar nada</strong> — o instalador faz tudo sozinho.</>}
           </p>
 
           <button
@@ -433,7 +459,7 @@ export default function DownloaderPage() {
               Tudo é instalado em <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>%USERPROFILE%\.yt-downloader-backend</code> — para desinstalar, basta apagar esta pasta.
             </p>
             <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
-              <span>YT Downloader v2.0.3</span>
+              <span>YT Downloader v2.0.4</span>
               <span>GestRW · {new Date().getFullYear()}</span>
             </div>
           </div>
@@ -658,12 +684,13 @@ export default function DownloaderPage() {
       {/* Version & Changelog */}
       <div style={{ marginTop: 32, borderTop: '1px solid var(--border)', paddingTop: 16, color: 'var(--text-muted)', fontSize: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <span style={{ fontWeight: 600 }}>YT Downloader v2.0.3</span>
+          <span style={{ fontWeight: 600 }}>YT Downloader v2.0.4</span>
           <span>GestRW · {new Date().getFullYear()}</span>
         </div>
         <details style={{ marginTop: 8 }}>
           <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>Changelog</summary>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18, lineHeight: 2, fontSize: 11, color: 'var(--text-muted)' }}>
+            <li><strong>v2.0.4</strong> — Fecha o backend e seus downloads após sair da aba Downloader</li>
             <li><strong>v2.0.3</strong> — Instalador reconhece o backend já ativo sem erro de porta ocupada</li>
             <li><strong>v2.0.2</strong> — Baixa somente o intervalo marcado, sem transferir a transmissão inteira</li>
             <li><strong>v2.0.1</strong> — Checagem do yt-dlp a cada 3 dias e erro 403 mostrado claramente</li>
