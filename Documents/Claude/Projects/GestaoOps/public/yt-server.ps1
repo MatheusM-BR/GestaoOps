@@ -80,18 +80,24 @@ Write-Host @"
 ==================================================
 "@
 
-# Cleanup old
-if (Test-Path $DlBase) {
-    Get-ChildItem $DlBase -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^[0-9a-f]{32}$' } |
-        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-}
-
 $http = [Net.HttpListener]::new()
 $http.Prefixes.Add("http://localhost:${Port}/")
 try { $http.Start() } catch {
-    Write-Host "`n  [ERRO] Porta $Port ja em uso. Feche o outro servidor.`n"
+    try {
+        $running = Invoke-RestMethod "http://localhost:$Port/" -TimeoutSec 2
+        if ($running.status -eq 'ok') {
+            Write-Host "`n  [OK] Backend ja esta rodando na porta $Port. Volte ao GestRW.`n"
+            exit 0
+        }
+    } catch {}
+    Write-Host "`n  [ERRO] Porta $Port ocupada por outro programa.`n"
     Read-Host 'Pressione Enter para sair'; exit 1
+}
+# So limpar downloads antigos depois de assumir a porta; outra instancia pode estar trabalhando.
+if (Test-Path $DlBase) {
+    Get-ChildItem $DlBase -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^[0-9a-f]{32}$' -and $_.LastWriteTime -lt (Get-Date).AddDays(-1) } |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }
 Write-Host "`n  Servidor rodando em http://localhost:$Port"
 Write-Host "  Volte ao GestaoOps - conecta automaticamente."
@@ -286,8 +292,8 @@ while ($http.IsListening) {
                 $downloadError = @($errLines | Where-Object { $_ -match '^ERROR:' } | Select-Object -Last 1)
                 if ($downloadError.Count -gt 0) {
                     $job.error = "$($downloadError[-1])".Trim()
-                    if ($job.error -match 'HTTP Error 403') {
-                        $job.error = 'YouTube recusou o fluxo (HTTP 403). Atualize o yt-dlp pelo instalador e tente novamente. Se persistir, o formato pode exigir um PO Token.'
+                    if (($errLines -join "`n") -match '(?i)(?:HTTP (?:error )?403|403 Forbidden)') {
+                        $job.error = 'YouTube recusou o fluxo do recorte (HTTP 403). O yt-dlp local deve estar atualizado; se o erro persistir, este formato pode exigir um PO Token.'
                     }
                     $job.finished = $true
                     RespondJson $ctx @{

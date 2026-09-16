@@ -193,6 +193,12 @@ REM ================================================================
 REM  INICIAR
 REM ================================================================
 echo.
+powershell -NoProfile -Command "try { $r = Invoke-RestMethod 'http://localhost:5000/' -TimeoutSec 2; if ($r.status -eq 'ok') { exit 0 } } catch {}; exit 1"
+if not errorlevel 1 (
+    echo  [OK] Servidor do GestRW ja esta rodando na porta 5000.
+    echo       Volte ao navegador. Nao e preciso abrir outra janela.
+    exit /b 0
+)
 echo  ============================================================
 echo    Tudo pronto! Iniciando servidor...
 echo    Volte ao GestRW - conecta automaticamente.
@@ -427,7 +433,7 @@ export default function DownloaderPage() {
               Tudo é instalado em <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>%USERPROFILE%\.yt-downloader-backend</code> — para desinstalar, basta apagar esta pasta.
             </p>
             <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
-              <span>YT Downloader v2.0.2</span>
+              <span>YT Downloader v2.0.3</span>
               <span>GestRW · {new Date().getFullYear()}</span>
             </div>
           </div>
@@ -652,12 +658,13 @@ export default function DownloaderPage() {
       {/* Version & Changelog */}
       <div style={{ marginTop: 32, borderTop: '1px solid var(--border)', paddingTop: 16, color: 'var(--text-muted)', fontSize: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <span style={{ fontWeight: 600 }}>YT Downloader v2.0.2</span>
+          <span style={{ fontWeight: 600 }}>YT Downloader v2.0.3</span>
           <span>GestRW · {new Date().getFullYear()}</span>
         </div>
         <details style={{ marginTop: 8 }}>
           <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>Changelog</summary>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18, lineHeight: 2, fontSize: 11, color: 'var(--text-muted)' }}>
+            <li><strong>v2.0.3</strong> — Instalador reconhece o backend já ativo sem erro de porta ocupada</li>
             <li><strong>v2.0.2</strong> — Baixa somente o intervalo marcado, sem transferir a transmissão inteira</li>
             <li><strong>v2.0.1</strong> — Checagem do yt-dlp a cada 3 dias e erro 403 mostrado claramente</li>
             <li><strong>v2.0.0</strong> — Zero dependências: backend reescrito em PowerShell + yt-dlp.exe standalone (sem Python)</li>
