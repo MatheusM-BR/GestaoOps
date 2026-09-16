@@ -34,7 +34,6 @@ $Ver = '?'
 try { $Ver = (& $YtDlp --version 2>$null).Trim() } catch {}
 
 $script:Jobs = [hashtable]::Synchronized(@{})
-$script:TrimData = @{}
 
 function Cors($r) {
     $r.AddHeader('Access-Control-Allow-Origin','*')
@@ -213,11 +212,19 @@ while ($http.IsListening) {
                 }
                 $argStr += ' --merge-output-format mp4'
             }
-            $script:TrimData[$jid] = $null
             if ($data.start_time -or $data.end_time) {
                 $s = if ($data.start_time) { "$($data.start_time)" } else { '0' }
                 $e = if ($data.end_time)   { "$($data.end_time)" }   else { '' }
-                $script:TrimData[$jid] = @{ start=$s; end=$e }
+                if ($s -notmatch '^(?:\d+:)?[0-5]?\d:[0-5]\d$|^\d+$' -or ($e -and $e -notmatch '^(?:\d+:)?[0-5]?\d:[0-5]\d$|^\d+$')) {
+                    RespondJson $ctx @{ error='Use horarios em HH:MM:SS (ex.: 01:20:00).' } 400; continue
+                }
+                if (!$e) { RespondJson $ctx @{ error='Informe o fim do trecho para baixar somente a parte marcada.' } 400; continue }
+                $toSeconds = { param($value) $parts = @($value.Split(':') | ForEach-Object { [int]$_ }); $seconds = 0; foreach ($part in $parts) { $seconds = $seconds * 60 + $part }; $seconds }
+                if ((& $toSeconds $e) -le (& $toSeconds $s)) {
+                    RespondJson $ctx @{ error='O fim do trecho deve ser posterior ao inicio.' } 400; continue
+                }
+                # yt-dlp solicita ao ffmpeg apenas o intervalo; nao transfere a transmissao inteira.
+                $argStr += " --download-sections `"*$s-$e`""
             }
             $argStr += " `"$url`""
 
@@ -274,32 +281,28 @@ while ($http.IsListening) {
             try { $procDone = $job.proc.HasExited } catch { $procDone = $true }
 
             if ($procDone -and !$job.finished) {
+                # yt-dlp pode deixar um arquivo parcial sem .part ao receber 403.
+                # Nunca tratar esse arquivo como download concluido.
+                $downloadError = @($errLines | Where-Object { $_ -match '^ERROR:' } | Select-Object -Last 1)
+                if ($downloadError.Count -gt 0) {
+                    $job.error = "$($downloadError[-1])".Trim()
+                    if ($job.error -match 'HTTP Error 403') {
+                        $job.error = 'YouTube recusou o fluxo (HTTP 403). Atualize o yt-dlp pelo instalador e tente novamente. Se persistir, o formato pode exigir um PO Token.'
+                    }
+                    $job.finished = $true
+                    RespondJson $ctx @{
+                        status = 'error'; progress = $pct; speed = $null; eta = $null
+                        title = $null; filename = $null; filepath = $null; filesize = $null
+                        error = $job.error; warning = $null; log = $allLines[-1]; log_lines = $allLines
+                    }
+                    continue
+                }
                 $media = @(Get-ChildItem $job.outDir -File -ErrorAction SilentlyContinue |
                            Where-Object { $_.Extension -notin '.part','.ytdl','.log','.tmp' })
                 if ($media.Count -gt 0) {
                     $ext = if ($job.format -eq 'mp3') { '.mp3' } else { '.mp4' }
                     $pick = $media | Where-Object { $_.Extension -eq $ext } | Sort-Object Length -Descending | Select-Object -First 1
                     if (!$pick) { $pick = $media | Sort-Object Length -Descending | Select-Object -First 1 }
-
-                    # Trim with ffmpeg if needed
-                    $trim = $script:TrimData[$jid]
-                    if ($trim -and $HasFfmpeg) {
-                        Write-Host "  [~] Cortando trecho: $($trim.start) - $($trim.end)"
-                        $trimOut = Join-Path $job.outDir ("trimmed" + $pick.Extension)
-                        $ffArgs = "-y -i `"$($pick.FullName)`" -ss $($trim.start)"
-                        if ($trim.end) { $ffArgs += " -to $($trim.end)" }
-                        $ffArgs += " -c copy `"$trimOut`""
-                        $ffProc = Start-Process -FilePath 'ffmpeg' -ArgumentList $ffArgs -WindowStyle Hidden -Wait -PassThru
-                        if ($ffProc.ExitCode -eq 0 -and (Test-Path $trimOut)) {
-                            Remove-Item $pick.FullName -Force -ErrorAction SilentlyContinue
-                            Rename-Item $trimOut $pick.Name -ErrorAction SilentlyContinue
-                            $pick = Get-Item (Join-Path $job.outDir $pick.Name)
-                            Write-Host "  [OK] Trecho cortado."
-                        } else {
-                            $job.warning = "Corte falhou, usando arquivo completo."
-                            Write-Host "  [!] Corte falhou."
-                        }
-                    }
 
                     try {
                         if (!(Test-Path $job.dest)) { New-Item -ItemType Directory -Path $job.dest -Force | Out-Null }

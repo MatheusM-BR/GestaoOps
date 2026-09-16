@@ -83,6 +83,7 @@ echo.
 
 set "WORKDIR=%USERPROFILE%\\.yt-downloader-backend"
 set "YTDLP=%WORKDIR%\\yt-dlp.exe"
+set "UPDATE_STAMP=%WORKDIR%\\yt-dlp-updated.txt"
 set "SERVER=%WORKDIR%\\yt-server.ps1"
 set "FFDIR=%WORKDIR%\\ffmpeg"
 
@@ -93,7 +94,7 @@ REM  PASSO 1: yt-dlp.exe (executavel standalone, sem Python)
 REM ================================================================
 if exist "%YTDLP%" (
     echo  [OK] yt-dlp.exe ja presente.
-    goto :FFMPEG
+    goto :UPDATE_YTDLP
 )
 
 echo  [1/3] Baixando yt-dlp.exe (~12MB, so na 1a vez)...
@@ -107,6 +108,22 @@ if not exist "%YTDLP%" (
     exit /b 1
 )
 echo  [OK] yt-dlp.exe baixado.
+
+:UPDATE_YTDLP
+REM Checar no maximo a cada 72 horas; falhas serao tentadas novamente.
+powershell -NoProfile -Command "if ((Test-Path -LiteralPath '%UPDATE_STAMP%') -and ((Get-Date) - (Get-Item -LiteralPath '%UPDATE_STAMP%').LastWriteTime).TotalHours -lt 72) { exit 1 }"
+if errorlevel 1 (
+    echo  [OK] yt-dlp verificado nos ultimos 3 dias.
+    goto :FFMPEG
+)
+echo  [1/3] Verificando atualizacao do yt-dlp (canal nightly)...
+"%YTDLP%" --update-to nightly
+if errorlevel 1 (
+    echo  [AVISO] Nao foi possivel atualizar yt-dlp. Nova tentativa na proxima abertura.
+) else (
+    powershell -NoProfile -Command "Set-Content -LiteralPath '%UPDATE_STAMP%' -Value (Get-Date).ToString('o')"
+    echo  [OK] yt-dlp verificado. Proxima checagem em 3 dias.
+)
 
 :FFMPEG
 REM ================================================================
@@ -281,6 +298,9 @@ export default function DownloaderPage() {
 
   const startDownload = useCallback(async () => {
     if (!url.trim()) { setFetchError('Informe a URL do vídeo.'); return; }
+    if (trimEnabled && (!startTime.trim() || !endTime.trim())) {
+      setFetchError('Informe o início e o fim do trecho.'); return;
+    }
     setFetchError('');
     setDownloading(true);
     setProgress(null);
@@ -407,7 +427,7 @@ export default function DownloaderPage() {
               Tudo é instalado em <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 4px', borderRadius: 3, fontSize: 11 }}>%USERPROFILE%\.yt-downloader-backend</code> — para desinstalar, basta apagar esta pasta.
             </p>
             <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
-              <span>YT Downloader v2.0.0</span>
+              <span>YT Downloader v2.0.2</span>
               <span>GestRW · {new Date().getFullYear()}</span>
             </div>
           </div>
@@ -562,6 +582,7 @@ export default function DownloaderPage() {
             </div>
           </div>
         )}
+        {trimEnabled && <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: '10px 0 0' }}>Informe o início e o fim. O downloader solicitará somente esse intervalo.</p>}
       </div>
 
       {/* Download button */}
@@ -631,12 +652,14 @@ export default function DownloaderPage() {
       {/* Version & Changelog */}
       <div style={{ marginTop: 32, borderTop: '1px solid var(--border)', paddingTop: 16, color: 'var(--text-muted)', fontSize: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <span style={{ fontWeight: 600 }}>YT Downloader v2.0.0</span>
+          <span style={{ fontWeight: 600 }}>YT Downloader v2.0.2</span>
           <span>GestRW · {new Date().getFullYear()}</span>
         </div>
         <details style={{ marginTop: 8 }}>
           <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>Changelog</summary>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18, lineHeight: 2, fontSize: 11, color: 'var(--text-muted)' }}>
+            <li><strong>v2.0.2</strong> — Baixa somente o intervalo marcado, sem transferir a transmissão inteira</li>
+            <li><strong>v2.0.1</strong> — Checagem do yt-dlp a cada 3 dias e erro 403 mostrado claramente</li>
             <li><strong>v2.0.0</strong> — Zero dependências: backend reescrito em PowerShell + yt-dlp.exe standalone (sem Python)</li>
             <li><strong>v1.2.0</strong> — Correção de PATH para ffmpeg/Deno em Python portátil</li>
             <li><strong>v1.1.0</strong> — Instalador com Python portátil (embeddable), sem necessidade de instalação manual</li>
