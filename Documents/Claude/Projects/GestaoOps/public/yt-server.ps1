@@ -68,7 +68,7 @@ function ReadLogSafe($path) {
         $fs = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
         $sr = [IO.StreamReader]::new($fs, [Text.Encoding]::UTF8)
         $text = $sr.ReadToEnd(); $sr.Close(); $fs.Close()
-        return @($text -split "`r?`n" | Where-Object { $_ -ne '' })
+        return @($text -split "`r`n|`n|`r" | Where-Object { $_ -ne '' })
     } catch { return @() }
 }
 
@@ -256,6 +256,8 @@ while ($http.IsListening) {
             $audioQ  = if ($data.audio_quality)  { "$($data.audio_quality)" } else { '192' }
             $dp      = if ($data.dest_path)      { "$($data.dest_path)".Trim() } else { '' }
             $dest    = if ($dp) { $dp } else { $Desktop }
+            $isTrim  = [bool]($data.start_time -or $data.end_time)
+            $isYoutube = $url -match '^https?://(?:www\.|m\.)?(?:youtube\.com|youtu\.be)/'
 
             if (($fmt -eq 'mp3' -or $data.start_time -or $data.end_time) -and !$HasFfmpeg) {
                 RespondJson $ctx @{ error='ffmpeg necessario para MP3/corte. Instale: winget install Gyan.FFmpeg' } 400; continue
@@ -272,9 +274,19 @@ while ($http.IsListening) {
                 $argStr += " --ffmpeg-location `"$ffPath`""
             }
             if ($fmt -eq 'mp3') {
-                $argStr += " -f bestaudio/best -x --audio-format mp3 --audio-quality $audioQ"
+                if ($isTrim -and $isYoutube) {
+                    $argStr += " -f `"bestaudio[protocol^=m3u8]`""
+                } else {
+                    $argStr += ' -f bestaudio/best'
+                }
+                $argStr += " -x --audio-format mp3 --audio-quality $audioQ"
             } else {
-                if ($quality -and $quality -ne 'best') {
+                if ($isTrim -and $isYoutube) {
+                    # HLS permite buscar diretamente os fragmentos do trecho em transmissões longas.
+                    # O HTTPS DASH pode ficar parado no seek do ffmpeg por muitos minutos.
+                    $heightFilter = if ($quality -match '^(\d{3,4})p$') { '[height<=' + $Matches[1] + ']' } else { '' }
+                    $argStr += " -f `"bestvideo[protocol^=m3u8][vcodec^=avc1]$heightFilter+bestaudio[protocol^=m3u8]`""
+                } elseif ($quality -and $quality -ne 'best') {
                     $h = $quality -replace 'p',''
                     $argStr += " -f `"bestvideo[height<=$h][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=$h]+bestaudio/best[height<=$h]/best`""
                 } else {
@@ -282,7 +294,8 @@ while ($http.IsListening) {
                 }
                 $argStr += ' --merge-output-format mp4'
             }
-            if ($data.start_time -or $data.end_time) {
+            $trimDuration = $null
+            if ($isTrim) {
                 $s = if ($data.start_time) { "$($data.start_time)" } else { '0' }
                 $e = if ($data.end_time)   { "$($data.end_time)" }   else { '' }
                 if ($s -notmatch '^(?:\d+:)?[0-5]?\d:[0-5]\d$|^\d+$' -or ($e -and $e -notmatch '^(?:\d+:)?[0-5]?\d:[0-5]\d$|^\d+$')) {
@@ -290,7 +303,8 @@ while ($http.IsListening) {
                 }
                 if (!$e) { RespondJson $ctx @{ error='Informe o fim do trecho para baixar somente a parte marcada.' } 400; continue }
                 $toSeconds = { param($value) $parts = @($value.Split(':') | ForEach-Object { [int]$_ }); $seconds = 0; foreach ($part in $parts) { $seconds = $seconds * 60 + $part }; $seconds }
-                if ((& $toSeconds $e) -le (& $toSeconds $s)) {
+                $trimDuration = (& $toSeconds $e) - (& $toSeconds $s)
+                if ($trimDuration -le 0) {
                     RespondJson $ctx @{ error='O fim do trecho deve ser posterior ao inicio.' } 400; continue
                 }
                 # yt-dlp solicita ao ffmpeg apenas o intervalo; nao transfere a transmissao inteira.
@@ -312,6 +326,7 @@ while ($http.IsListening) {
                 errLog    = $errLog
                 dest      = $dest
                 format    = $fmt
+                trimDuration = $trimDuration
                 finished  = $false
                 filename  = $null
                 filepath  = $null
@@ -340,9 +355,13 @@ while ($http.IsListening) {
                 if ($ln -match '\[download\]\s+([\d.]+)%') {
                     $status = 'downloading'; $pct = [math]::Round([double]$Matches[1], 1)
                 }
+                elseif ($job.trimDuration -and $ln -match 'time=(\d+):(\d+):(\d+(?:\.\d+)?)') {
+                    $elapsed = [int]$Matches[1] * 3600 + [int]$Matches[2] * 60 + [double]::Parse($Matches[3], [cultureinfo]::InvariantCulture)
+                    $status = 'downloading'; $pct = [math]::Min(99, [math]::Max(1, [math]::Round($elapsed / $job.trimDuration * 100, 1)))
+                }
                 elseif ($ln -match '\[download\]\s*100') { $status = 'processing'; $pct = 100 }
                 elseif ($ln -match '\[(Merger|ffmpeg|ExtractAudio|FixupM3u8)\]') { $status = 'processing'; $pct = 100 }
-                elseif ($ln -match 'Duration:|Stream #|frame=|size=|time=') { $status = 'processing'; $pct = 95 }
+                elseif (!$job.trimDuration -and $ln -match 'Duration:|Stream #|frame=|size=|time=') { $status = 'processing'; $pct = 95 }
                 elseif ($ln -match '\[download\] Destination:') { if ($status -eq 'extracting') { $status = 'downloading'; $pct = 1 } }
             }
 
